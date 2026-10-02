@@ -418,14 +418,14 @@ server {
 **方式一：预构建镜像（免克隆、免构建）**：多架构镜像（`linux/amd64` + `linux/arm64`），x86 服务器与 ARM 设备自动匹配
 
 ```bash
-docker pull huobao/huobao-drama:4.0.5
+docker pull huobao/huobao-drama:4.0.6
 
 docker run -d \
   --name huobao-drama \
   -p 5679:5679 \
   -v huobao-data:/app/data \
   --restart unless-stopped \
-  huobao/huobao-drama:4.0.5
+  huobao/huobao-drama:4.0.6
 ```
 
 **方式二：docker compose（源码构建 + Watchtower 应用内更新）**：根目录提供一体化 `Dockerfile`（前端 generate + 后端依赖/运行时三阶段，后端与服务器部署一致走 tsx）与 `docker-compose.yml`（应用 + Watchtower）：
