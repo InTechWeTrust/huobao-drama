@@ -28,10 +28,17 @@ ARG HUOBAO_VERSION=dev
 ENV NODE_ENV=production \
     HUOBAO_VERSION=${HUOBAO_VERSION} \
     PORT=5679 \
+    FFMPEG_BIN=/usr/bin/ffmpeg \
+    FFPROBE_BIN=/usr/bin/ffprobe \
     HUOBAO_DATA_DIR=/app/data \
     SQLITE_PATH=/app/data/huobao.sqlite3 \
     WORKSPACE_PATH=/app/data/workspace \
     FRONTEND_DIST=/app/frontend-dist
+
+# ffprobe-static 不包含 Linux ARM64 二进制；两个架构统一使用系统媒体工具。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=backend-build /build/backend/src ./backend/src
