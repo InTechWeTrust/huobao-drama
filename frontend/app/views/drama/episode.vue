@@ -1,5 +1,5 @@
 <template>
-  <div class="studio" v-if="drama">
+  <div class="studio" v-if="drama" :inert="brainSaving">
     <header class="studio-topbar">
       <div class="studio-topbar-main">
         <button class="back-btn topbar-back" @click="navigateTo(`/drama/${dramaId}`)">
@@ -37,6 +37,10 @@
             :default-label="t('episode.model.defaultWith', { model: imageModelOptions[0].model })"
             :show-config="imageModelMultiCfg"
           />
+          <label v-if="textModelOptions.length" class="episode-brain-effort">Effort
+            <select v-model="chatEffort" aria-label="Episode brain effort"><option v-for="effort in chatEfforts" :key="effort" :value="effort">{{ effort }}</option></select>
+          </label>
+          <small v-if="brainError" role="alert">{{ brainError }}</small>
           <ModelSelect
             v-if="videoModelOptions.length"
             v-model="videoModel"
@@ -57,7 +61,7 @@
           <button class="btn btn-icon tour-help-btn" :title="t('tour.helpTitle')" @click="startTour('episode', EPISODE_TOUR, t)">
             <CircleHelp :size="14" :stroke-width="1.8" />
           </button>
-          <button class="btn" @click="refresh">
+          <button class="btn" @click="refresh(); loadConfigs()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             {{ t('common.refresh') }}
           </button>
@@ -792,6 +796,7 @@
                   </section>
                 </div>
 
+                <RubyShotControls v-if="selectedVideoConfig?.provider === 'ruby'" :model="effectiveVideoModelLabel" :storyboard-id="selectedSb.id" :duration="Number(selectedSb.duration || 10)" :prompt="resolveVideoPromptRefs(selectedSb)" :aspect="dramaAspectRatio" :resolution="episodeResolution" :references="getShotReferenceImages(selectedSb)" @duration-contract="rubyDurationContract = $event" @vocabulary="rubyVocabulary = $event" />
                 <!-- 分镜时长 + 生成操作常驻底部：不随检查器内容滚动 -->
                 <div class="video-inspector-footer">
                   <section class="video-inspector-section video-params-card">
@@ -801,15 +806,16 @@
                         <input
                           :value="selectedSb.duration || 10"
                           type="number"
-                          min="2"
-                          max="30"
+                          :min="durationLimits.min"
+                          :max="durationLimits.max"
+                          :step="durationLimits.step"
                           class="input video-duration-input"
                           @change="onVideoDurationChange"
                         />
                         <span class="video-param-unit">{{ t('episode.inspector.durationUnit') }}</span>
                       </span>
                     </div>
-                    <div class="video-param-hint">{{ t('episode.inspector.durationHint') }}</div>
+                    <div class="video-param-hint">{{ selectedVideoConfig?.provider === 'ruby' ? rubyDurationContract?.slot?.help || 'Preview validates this preset duration and frame grid.' : t('episode.inspector.durationHint') }}</div>
                   </section>
                   <div class="video-inspector-effective">
                     {{ t('episode.inspector.effective', { model: effectiveVideoModelLabel || t('episode.vid.defaultModel'), res: episodeResolutionShort, dur: effectiveVideoDuration }) }}
@@ -1567,7 +1573,32 @@ function readStoredModel(key, legacyKey = '') {
   try { return localStorage.getItem(key) || (legacyKey && localStorage.getItem(legacyKey)) || '' } catch { return '' }
 }
 // 顶栏文本模型：适用于所有 Chat Agent 调用（改写/提取/拆镜/视频提示词/最终提示词），空串 = 跟随配置默认
-const chatModel = ref(readStoredModel(MODEL_STORE_KEYS.chat, 'huobao:model:rewrite'))
+const chatModel = ref('')
+const chatEffort = ref('low')
+const brainEffortsByModel = ref({})
+const brainReady = ref(false), brainSaving = ref(false), brainError = ref('')
+const effectiveBrainModel = computed(() => bareModelName(chatModel.value) || configModels(textConfigs.value.find(config => config.is_active))[0] || 'gpt-6.1-sol')
+const chatEfforts = computed(() => brainEffortsByModel.value[effectiveBrainModel.value] || ['low'])
+async function loadEpisodeBrain() {
+  if (!epId.value) return
+  brainReady.value = false
+  try {
+    const saved = await api.get(`/settings/machine-brain/episodes/${epId.value}`)
+    brainEffortsByModel.value = saved.efforts_by_model
+    chatModel.value = textModelOptions.value.find(option => bareModelName(option.key) === saved.model)?.key || `openai/${saved.model}`
+    chatEffort.value = saved.effort
+    await nextTick()
+    brainReady.value = true; brainError.value = ''
+  } catch (err) { brainError.value = err.message }
+}
+watch([chatModel, chatEffort], async () => {
+  if (!brainReady.value || brainSaving.value) return
+  brainSaving.value = true; brainError.value = ''
+  if (!chatEfforts.value.includes(chatEffort.value)) chatEffort.value = 'low'
+  try { await api.put(`/settings/machine-brain/episodes/${epId.value}`, { model: effectiveBrainModel.value, effort: chatEffort.value }) }
+  catch (err) { brainError.value = err.message; await loadEpisodeBrain() }
+  finally { brainSaving.value = false }
+})
 const imageModel = ref(readStoredModel(MODEL_STORE_KEYS.image))
 const videoModel = ref(readStoredModel(MODEL_STORE_KEYS.video))
 function persistModel(modelRef, key) {
@@ -1575,7 +1606,6 @@ function persistModel(modelRef, key) {
     try { v ? localStorage.setItem(key, v) : localStorage.removeItem(key) } catch {}
   })
 }
-persistModel(chatModel, MODEL_STORE_KEYS.chat)
 persistModel(imageModel, MODEL_STORE_KEYS.image)
 persistModel(videoModel, MODEL_STORE_KEYS.video)
 // 左侧菜单栏收起/展开：收起为窄图标栏给内容区让位，持久化到 localStorage
@@ -2043,13 +2073,21 @@ const RESOLUTION_DISPLAY = {
   aliyun: { '480p': '480P', '720p': '720P', '1080p': '1080P' },
 }
 const resolutionProvider = computed(() => RESOLUTION_TIERS[selectedVideoConfig.value?.provider] ? selectedVideoConfig.value.provider : 'volcengine')
-const resolutionOptions = computed(() => RESOLUTION_TIERS[resolutionProvider.value].map(key => ({
+const rubyVocabulary = ref({})
+const rubyDurationContract = ref(null)
+const durationLimits = computed(() => {
+  if (selectedVideoConfig.value?.provider !== 'ruby') return { min: 2, max: 30, step: 1 }
+  const slot = rubyDurationContract.value?.slot
+  if (rubyDurationContract.value?.binding?.unit === 'frames') return { min: (slot?.min || 24) / (rubyDurationContract.value.binding.fps || 24), max: (slot?.max || 1440) / (rubyDurationContract.value.binding.fps || 24), step: 'any' }
+  return { min: slot?.min ?? rubyVocabulary.value.durations?.default?.min ?? 1, max: slot?.max ?? rubyVocabulary.value.durations?.default?.max ?? 60, step: 'any' }
+})
+const resolutionOptions = computed(() => selectedVideoConfig.value?.provider === 'ruby' ? (rubyVocabulary.value.resolutions || []).map(row => ({ key: row.id, model: `${row.id}${row.needs_upscale ? ' · enhancement required' : ''}` })) : RESOLUTION_TIERS[resolutionProvider.value].map(key => ({
   key,
   model: `${RESOLUTION_DISPLAY[resolutionProvider.value][key]} · ${t(`episode.resolution.${key === '480p' ? 'smooth' : key === '720p' ? 'hd' : 'uhd'}`)}`,
 })))
 const episodeResolution = computed({
   get: () => {
-    const v = episode.value?.resolution
+    const v = String(episode.value?.resolution || '').toLowerCase()
     return resolutionOptions.value.some(o => o.key === v) ? v : '720p'
   },
   set: (val) => { void changeEpisodeResolution(val) },
@@ -2105,7 +2143,8 @@ function ownerConfigId(options, key) {
 function hasMultiConfigs(options) {
   return new Set(options.map(o => o.configId)).size > 1
 }
-const textModelOptions = computed(() => collectModelOptions(textConfigs.value))
+const brainLabels = { 'gpt-6.1-sol': 'Sol 6.1', 'claude-opus-5-5': 'Opus 5.5', 'local:qwen3.8-27b@ninfer-ruby': 'Local Qwen 3.8 27B' }
+const textModelOptions = computed(() => collectModelOptions(textConfigs.value).map(option => ({ ...option, model: brainLabels[bareModelName(option.key)] || option.model })))
 const imageModelOptions = computed(() => collectModelOptions(imageConfigs.value))
 const videoModelOptions = computed(() => collectModelOptions(videoConfigs.value))
 const selectedVideoConfig = computed(() => {
@@ -3204,9 +3243,8 @@ function resolveVideoPromptRefs(sb) {
 function onVideoDurationChange(e) {
   const sb = selectedSb.value
   if (!sb) return
-  const min = 2
-  const max = 30
-  let v = Math.round(Number(e.target.value))
+  const { min, max } = durationLimits.value
+  let v = Number(e.target.value)
   if (!Number.isFinite(v)) v = Number(sb.duration || 10)
   v = Math.min(max, Math.max(min, v))
   e.target.value = v
@@ -3361,10 +3399,11 @@ async function loadConfigs() {
     imageConfigs.value = imgCfgs || []
     videoConfigs.value = vidCfgs || []
     textConfigs.value = txtCfgs || []
+    if (vidCfgs?.some(row => row.provider === 'ruby')) rubyVocabulary.value = await api.get('/settings/ruby-media/presets/' + encodeURIComponent(configModels(vidCfgs.find(row => row.provider === 'ruby'))[0])).then(data => data.vocabulary)
   } catch (e) { console.error('Failed to load AI configs', e) }
 }
 
-onMounted(async () => { await refresh(); loadConfigs(); syncExtractStatus() })
+onMounted(async () => { await refresh(); await loadConfigs(); await loadEpisodeBrain(); syncExtractStatus() })
 
 // ===== 应用内引导（工作台）：沿左侧进度栏走 6 步流水线 =====
 const EPISODE_TOUR = [

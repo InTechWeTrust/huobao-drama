@@ -15,6 +15,30 @@ export interface AIConfig {
   model: string
   /** 采样温度，null 表示不设置（跟随服务商默认）。存于 ai_service_configs.settings JSON */
   temperature?: number | null
+  reasoningEffort?: string
+}
+
+export const MACHINE_MODELS = ['local:qwen3.8-27b@ninfer-ruby', 'claude-opus-5-5', 'gpt-6.1-sol'] as const
+export const MACHINE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+export const MACHINE_EFFORTS_BY_MODEL: Record<string, readonly string[]> = {
+  'local:qwen3.8-27b@ninfer-ruby': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6.1-sol': MACHINE_EFFORTS,
+}
+
+export function parseConfigEffort(raw?: string | null): string {
+  try {
+    const effort = JSON.parse(raw || '{}').reasoning_effort
+    return MACHINE_EFFORTS.includes(effort) ? effort : 'low'
+  } catch { return 'low' }
+}
+
+export function localServiceAllowed(row: any): boolean {
+  if (row.serviceType !== 'text') return row.provider === 'ruby'
+  try {
+    const url = new URL(row.baseUrl)
+    return row.provider === 'openai' && url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && url.pathname.replace(/\/+$/, '').endsWith('/api/v1/machine')
+  } catch { return false }
 }
 
 /** 从 settings JSON 解析 temperature；非法值一律视为未设置 */
@@ -29,9 +53,9 @@ export function parseConfigTemperature(settingsRaw: string | null | undefined): 
 }
 
 export const officialProviders: Record<ServiceType, readonly string[]> = {
-  text: ['openai', 'gemini', 'volcengine'],
-  image: ['openai', 'gemini', 'volcengine'],
-  video: ['volcengine', 'minimax', 'aliyun'],
+  text: ['openai'],
+  image: ['ruby'],
+  video: ['ruby'],
 }
 
 export function isOfficialProvider(serviceType?: string | null, provider?: string | null): boolean {
@@ -65,7 +89,7 @@ export async function getActiveConfig(serviceType: ServiceType): Promise<AIConfi
   const rows = (await db.select().from(schema.aiServiceConfigs)
     .where(eq(schema.aiServiceConfigs.serviceType, serviceType))
   )
-    .filter(r => r.isActive && isOfficialProvider(serviceType, r.provider))
+    .filter(r => r.isActive && isOfficialProvider(serviceType, r.provider) && localServiceAllowed(r))
     .sort((a, b) => (b.priority || 0) - (a.priority || 0)) // 高优先级优先
 
   const active = rows[0]
@@ -92,6 +116,7 @@ export async function getActiveConfig(serviceType: ServiceType): Promise<AIConfi
     apiKey: active.apiKey,
     model: models[0] || '',
     temperature: parseConfigTemperature(active.settings),
+    reasoningEffort: parseConfigEffort(active.settings),
   }
 }
 
@@ -108,7 +133,7 @@ export async function getActiveConfigId(serviceType: ServiceType): Promise<numbe
   const rows = (await db.select().from(schema.aiServiceConfigs)
     .where(eq(schema.aiServiceConfigs.serviceType, serviceType))
   )
-    .filter(r => r.isActive && isOfficialProvider(serviceType, r.provider))
+    .filter(r => r.isActive && isOfficialProvider(serviceType, r.provider) && localServiceAllowed(r))
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
   return rows[0]?.id ?? null
 }
@@ -116,7 +141,7 @@ export async function getActiveConfigId(serviceType: ServiceType): Promise<numbe
 export async function getConfigById(id: number): Promise<AIConfig | null> {
   const [row] = await db.select().from(schema.aiServiceConfigs)
     .where(eq(schema.aiServiceConfigs.id, id))
-  if (!row || !row.isActive) {
+  if (!row || !row.isActive || !localServiceAllowed(row)) {
     logTaskWarn('AIConfig', 'config-by-id-missing', { configId: id })
     return null
   }
@@ -145,5 +170,6 @@ export async function getConfigById(id: number): Promise<AIConfig | null> {
     apiKey: row.apiKey,
     model: models[0] || '',
     temperature: parseConfigTemperature(row.settings),
+    reasoningEffort: parseConfigEffort(row.settings),
   }
 }

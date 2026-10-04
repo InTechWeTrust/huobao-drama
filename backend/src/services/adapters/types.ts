@@ -94,6 +94,8 @@ export interface VideoGenerationRecord {
   id: number
   model?: string | null
   prompt?: string | null
+  extendFrom?: string | null
+  extendKind?: string | null
   referenceMode?: string | null
   imageUrl?: string | null
   firstFrameUrl?: string | null

@@ -10,12 +10,11 @@ import { now } from '../utils/response.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 import { extractVideoPoster } from '../utils/video-poster.js'
 import { ffmpeg, checkFfmpegSuite } from '../utils/ffmpeg.js'
-import { DATA_ROOT, STORAGE_ROOT } from '../utils/paths.js'
+import { STORAGE_ROOT, TEMP_ROOT } from '../utils/paths.js'
+import { getAbsolutePath } from '../utils/storage.js'
 
 function toAbsPath(relativePath: string): string {
-  if (path.isAbsolute(relativePath)) return relativePath
-  if (relativePath.startsWith('static/')) return path.join(DATA_ROOT, relativePath)
-  return path.join(STORAGE_ROOT, relativePath)
+  return getAbsolutePath(relativePath)
 }
 
 /**
@@ -87,7 +86,7 @@ export async function mergeEpisodeVideos(episodeId: number, dramaId: number, sto
 
 async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   // 生成 concat 列表文件
-  const listDir = path.join(STORAGE_ROOT, 'temp')
+  const listDir = TEMP_ROOT
   fs.mkdirSync(listDir, { recursive: true })
   const listPath = path.join(listDir, `${uuid()}.txt`)
 
@@ -121,10 +120,7 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
       .on('error', (err) => reject(err))
       .run()
 
-  })
-
-  // 清理临时文件
-  fs.unlinkSync(listPath)
+  }).finally(() => { fs.rmSync(listPath, { force: true }) })
 
   // 获取时长
   const duration = await getVideoDuration(outputPath)

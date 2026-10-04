@@ -8,12 +8,14 @@ import { Agent } from '@mastra/core/agent'
 import type { RequestContext } from '@mastra/core/request-context'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
-import { getTextConfig, getTextProviderBaseUrl, getConfigById } from '../services/ai.js'
+import { getTextConfig, getTextProviderBaseUrl, getConfigById, MACHINE_MODELS, MACHINE_EFFORTS_BY_MODEL } from '../services/ai.js'
+import { machineEffortFetch } from '../services/episode-brain.js'
 import { logTaskProgress } from '../utils/task-logger.js'
 import { scriptTools } from './tools/script-tools.js'
 import { extractTools } from './tools/extract-tools.js'
 import { storyboardTools } from './tools/storyboard-tools.js'
 import { imagePromptTools } from './tools/image-prompt-tools.js'
+import { rubyLibraryTools } from './tools/ruby-library-tools.js'
 import { loadAgentSkills, skillWorkspaces } from './skills.js'
 import { loadAgentPromptFile, loadBasePromptFile } from './prompts.js'
 import { buildLanguageDirective } from './language.js'
@@ -291,10 +293,11 @@ function createMaxTokensFetch(providerName: string, inner?: typeof fetch): typeo
   }
 }
 
-async function getModel(fileModel: string | undefined, modelOverride?: string, textConfigId?: number) {
+async function getModel(fileModel: string | undefined, modelOverride?: string, textConfigId?: number, effortOverride?: string) {
   // 请求可指定文本配置（含其 provider/baseUrl/apiKey），否则回退到当前启用配置
   const textConfig = (textConfigId ? await getConfigById(textConfigId) : null) || await getTextConfig()
-  const modelName = modelOverride || fileModel || textConfig.model
+  const machine = new URL(getTextProviderBaseUrl(textConfig)).pathname.includes('/api/v1/machine')
+  const modelName = modelOverride || (machine && !(MACHINE_MODELS as readonly string[]).includes(fileModel || '') ? textConfig.model : fileModel) || textConfig.model
   const providerName = textConfig.provider.toLowerCase()
   const resolvedBaseURL = getTextProviderBaseUrl(textConfig)
   const temperature = textConfig.temperature ?? null
@@ -310,11 +313,14 @@ async function getModel(fileModel: string | undefined, modelOverride?: string, t
   }
 
   // 叠加请求补丁：thinking-off（非官方端点）+ 配置温度 + 输出上限（非官方 OpenAI）
-  const thinkingOffFetch = createThinkingOffFetch(providerName, resolvedBaseURL)
+  const isMachine = new URL(resolvedBaseURL).pathname.includes('/api/v1/machine')
+  const configuredEffort = textConfig.reasoningEffort || 'low'
+  const machineFetch = isMachine ? machineEffortFetch(modelName, effortOverride || (MACHINE_EFFORTS_BY_MODEL[modelName]?.includes(configuredEffort) ? configuredEffort : 'low')) : fetch
+  const thinkingOffFetch = isMachine ? machineFetch : createThinkingOffFetch(providerName, resolvedBaseURL)
   const tempFetch = temperature !== null
     ? createTemperatureFetch(providerName, temperature, thinkingOffFetch)
     : thinkingOffFetch
-  const fetchImpl = isOfficialOpenAIHost(resolvedBaseURL)
+  const fetchImpl = isMachine || isOfficialOpenAIHost(resolvedBaseURL)
     ? tempFetch
     : createMaxTokensFetch(providerName, tempFetch)
 
@@ -336,10 +342,11 @@ async function getModel(fileModel: string | undefined, modelOverride?: string, t
 }
 
 const AGENT_TOOLS: Record<string, Record<string, any>> = {
-  script_rewriter: scriptTools,
-  extractor: extractTools,
-  storyboard_breaker: storyboardTools,
+  script_rewriter: { ...scriptTools, ...rubyLibraryTools },
+  extractor: { ...extractTools, ...rubyLibraryTools },
+  storyboard_breaker: { ...storyboardTools, ...rubyLibraryTools },
   prompt_generator: {
+    ...rubyLibraryTools,
     ...imagePromptTools,
     readStoryboardContext: storyboardTools.readStoryboardContext,
     updateStoryboard: storyboardTools.updateStoryboard,
@@ -356,7 +363,8 @@ function buildInstructions(type: string) {
     const baseInstructions = promptFile?.instructions || defaults.instructions
     const skillInstructions = await loadAgentSkills(type, lang)
     const languageDirective = buildLanguageDirective(lang)
-    return [baseInstructions, skillInstructions, languageDirective]
+    const libraryDirective = 'Before creating or revising production content, call consultRubyLibrary to read the shared Ruby Library. Use relevant returned guidance and exact sections in your work. Local media uses only MiniMax H3 video and Qwen-Image 2.1 images. Other model families are disabled.'
+    return [baseInstructions, skillInstructions, languageDirective, libraryDirective]
       .filter(Boolean)
       .join('\n\n')
   }
@@ -369,7 +377,8 @@ function buildModel(type: string) {
     const promptFile = await loadBasePromptFile(type)
     const modelOverride = requestContext?.get('modelOverride' as never) as string | undefined
     const textConfigId = requestContext?.get('textConfigId' as never) as number | undefined
-    return getModel(promptFile?.model || undefined, modelOverride, textConfigId)
+    const reasoningEffort = requestContext?.get('reasoningEffort' as never) as string | undefined
+    return getModel(promptFile?.model || undefined, modelOverride, textConfigId, reasoningEffort)
   }
 }
 

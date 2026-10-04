@@ -27,16 +27,27 @@ import { requestLogger, errorHandler } from './middleware/logger.js'
 import { db, schema } from './db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from './utils/response.js'
-import { DATA_ROOT } from './utils/paths.js'
+import { STORAGE_ROOT } from './utils/paths.js'
+import machine from './machine/router.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '../..')
 
 const app = new Hono()
+const machineOrigins = new Set(['http://localhost:5679', 'http://127.0.0.1:5679', 'http://localhost:6332', 'http://127.0.0.1:6332'])
+app.use('*', async (c, next) => {
+  if (process.env.HUOBAO_LOCAL_MACHINE === '1') {
+    const origin = c.req.header('origin')
+    if ((origin && !machineOrigins.has(origin)) || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(c.req.url).hostname)) {
+      return c.json({ error: 'Local machine access only' }, 403)
+    }
+  }
+  await next()
+})
 
 // Middleware
 app.use('*', cors({
-  origin: ['http://localhost:3013', 'http://localhost:5679'],
+  origin: ['http://localhost:3013', 'http://localhost:5679', 'http://127.0.0.1:5679', 'http://localhost:6332', 'http://127.0.0.1:6332'],
   credentials: true,
 }))
 app.use('*', requestLogger)
@@ -69,6 +80,7 @@ api.route('/props', props)
 api.route('/storage', storage)
 api.route('/settings', settings)
 api.route('/server-update', serverUpdate)
+api.route('/machine', machine)
 
 app.route('/api/v1', api)
 
@@ -78,7 +90,7 @@ app.use('/static/*', async (c, next) => {
   await next()
   if (c.res.ok) c.header('Cache-Control', 'public, max-age=31536000, immutable')
 })
-app.use('/static/*', serveStatic({ root: DATA_ROOT }))
+app.use('/static/*', serveStatic({ root: STORAGE_ROOT, rewriteRequestPath: (value) => value.replace(/^\/static/, '') }))
 
 // Serve frontend (production build) — 桌面版由主进程注入 FRONTEND_DIST（resources/frontend）
 const distPath = process.env.FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist')
@@ -99,4 +111,4 @@ db.update(schema.sysTask)
   })
   .catch(err => console.error('清理中断任务失败:', err?.message))
 
-serve({ fetch: app.fetch, port })
+serve({ fetch: app.fetch, port, hostname: '127.0.0.1' })

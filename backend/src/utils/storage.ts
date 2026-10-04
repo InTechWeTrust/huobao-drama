@@ -6,12 +6,24 @@ import path from 'path'
 import sharp from 'sharp'
 import { v4 as uuid } from 'uuid'
 import { STORAGE_ROOT } from './paths.js'
+import { confinedPath } from './confined-path.js'
 
 /**
  * 下载远程文件到本地存储
  */
 export async function downloadFile(url: string, subDir: string): Promise<string> {
-  const dir = path.join(STORAGE_ROOT, subDir)
+  // Ruby already placed this artifact under the shared project. Adopt it, avoiding duplicate media.
+  const source = new URL(url)
+  if (source.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(source.hostname) && source.pathname === '/api/media') {
+    const artifact = source.searchParams.get('path')
+    if (artifact) {
+      const relative = path.relative(path.resolve(STORAGE_ROOT), path.resolve(artifact)).replace(/\\/g, '/')
+      const target = confinedPath(STORAGE_ROOT, relative)
+      if (fs.existsSync(target) && fs.statSync(target).isFile()) return `static/${relative}`
+      throw new Error('Ruby completed artifact is missing from the shared project')
+    }
+  }
+  const dir = confinedPath(STORAGE_ROOT, subDir)
   fs.mkdirSync(dir, { recursive: true })
 
   const ext = getExtFromUrl(url)
@@ -32,10 +44,11 @@ export async function downloadFile(url: string, subDir: string): Promise<string>
  * 保存上传的文件
  */
 export async function saveUploadedFile(data: ArrayBuffer, subDir: string, originalName: string): Promise<string> {
-  const dir = path.join(STORAGE_ROOT, subDir)
+  const dir = confinedPath(STORAGE_ROOT, subDir)
   fs.mkdirSync(dir, { recursive: true })
 
-  const ext = path.extname(originalName) || '.bin'
+  const originalExt = path.extname(originalName).toLowerCase()
+  const ext = /^\.[a-z0-9]{1,8}$/.test(originalExt) ? originalExt : '.bin'
   const filename = `${uuid()}${ext}`
   const filePath = path.join(dir, filename)
 
@@ -56,10 +69,7 @@ function getExtFromUrl(url: string): string {
  * 获取本地文件的绝对路径
  */
 export function getAbsolutePath(relativePath: string): string {
-  if (relativePath.startsWith('static/')) {
-    return path.join(STORAGE_ROOT, '..', relativePath)
-  }
-  return path.join(STORAGE_ROOT, relativePath)
+  return confinedPath(STORAGE_ROOT, relativePath)
 }
 
 /**
@@ -67,7 +77,7 @@ export function getAbsolutePath(relativePath: string): string {
  * 用于 Gemini 等只返回 base64 数据的厂商
  */
 export async function saveBase64Image(base64Data: string, mimeType: string, subDir: string): Promise<string> {
-  const dir = path.join(STORAGE_ROOT, subDir)
+  const dir = confinedPath(STORAGE_ROOT, subDir)
   fs.mkdirSync(dir, { recursive: true })
 
   // 从 mimeType 推断文件扩展名

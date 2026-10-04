@@ -6,8 +6,13 @@ import { toSnakeCaseArray, toSnakeCase } from '../utils/transform.js'
 import { getActiveConfigId } from '../services/ai.js'
 import { EXTRACT_TARGETS, getExtractionStatus, startExtraction, type ExtractTarget } from '../services/extraction.js'
 import { getVideoPromptBatchStatus, startVideoPromptBatch } from '../services/video-prompts.js'
+import { rubyRequest } from '../services/ruby-media.js'
 
 const app = new Hono()
+async function validResolution(value: unknown) {
+  const vocabulary = await rubyRequest('/api/shots/vocabulary')
+  return vocabulary.resolutions.some((choice: any) => choice.id === String(value).toLowerCase())
+}
 
 // POST /episodes — Create a new episode
 app.post('/', async (c) => {
@@ -34,7 +39,7 @@ app.post('/', async (c) => {
     imageConfigId,
     videoConfigId,
     // 视频分辨率在创建集时固定（480p/720p/1080p），后续可通过 PUT 修改；各视频适配器再映射为厂商档位
-    resolution: ['480p', '720p', '1080p'].includes(body.resolution) ? body.resolution : '720p',
+    resolution: body.resolution && await validResolution(body.resolution) ? String(body.resolution).toLowerCase() : '720p',
     createdAt: ts,
     updatedAt: ts,
   })
@@ -62,9 +67,10 @@ app.put('/:id', async (c) => {
     if (key in body) updates[key] = body[key]
   }
   if (Object.keys(updates).length === 0) return badRequest(c, '没有可更新的字段')
-  if ('resolution' in updates && !['480p', '720p', '1080p'].includes(updates.resolution)) {
-    return badRequest(c, 'resolution 只支持 480p / 720p / 1080p')
+  if ('resolution' in updates && !await validResolution(updates.resolution)) {
+    return badRequest(c, 'Choose a resolution from the live Ruby vocabulary')
   }
+  if ('resolution' in updates) updates.resolution = String(updates.resolution).toLowerCase()
 
   // Map snake_case to camelCase for drizzle
   const drizzleUpdates: Record<string, any> = { updatedAt: now() }
