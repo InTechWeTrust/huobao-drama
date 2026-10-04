@@ -80,6 +80,7 @@ function localReference(value: string): string {
 }
 
 export function buildRubyShot(card: any, record: any, kind: MediaKind, configured: Record<string, unknown>) {
+  if (record.audio_enabled != null && typeof record.audio_enabled !== 'boolean') throw new Error('Additional audio tracks must be true, false or null to use the existing policy')
   if (!configured || typeof configured !== 'object' || Array.isArray(configured)) throw new Error('Native preset controls must be an object')
   for (const [name, value] of Object.entries(configured)) {
     const slot = (card.slots || []).find((item: any) => item.name === name)
@@ -121,7 +122,7 @@ export function buildRubyShot(card: any, record: any, kind: MediaKind, configure
     ...(lastFrame ? { last_frame: localReference(lastFrame) } : {}),
     ...(extendFrom ? { extend_from: localReference(extendFrom), extend_kind: extendKind } : {}),
     duration_s: Number(record.duration ?? defaultDuration ?? 5), aspect: record.aspectRatio || 'auto', resolution: String(record.resolution || '480p').toLowerCase(),
-    seed: record.seed ?? null, audio_enabled: record.generateAudio !== false && record.generateAudio !== 0,
+    seed: record.seed ?? null, audio_enabled: record.audio_enabled ?? (record.generateAudio !== false && record.generateAudio !== 0),
     advanced,
   }
 }
@@ -134,7 +135,7 @@ export async function submitRubyMedia(kind: MediaKind, record: any) {
   if (!project || path.resolve(project.root).toLowerCase() !== path.resolve(STORAGE_ROOT).toLowerCase()) throw new Error(`Huobao media path mapping is pending. Ruby project huobao must use ${STORAGE_ROOT} before rendering; apply the native workspace mapping during controlled maintenance.`)
   const saved = getRubyShotControls(owned.storyboardId)
   const controls = saved.model === record.model ? saved : {}
-  const currentRecord = { ...record, extendFrom: record.extendFrom || controls.extend_from, extendKind: record.extendKind || controls.extend_kind, resolution: controls.resolution || record.resolution }
+  const currentRecord = { ...record, extendFrom: record.extendFrom || controls.extend_from, extendKind: record.extendKind || controls.extend_kind, resolution: controls.resolution || record.resolution, audio_enabled: controls.audio_enabled ?? record.audio_enabled }
   const card = (await localRubyPresets(kind, true)).find((item: any) => item.id === currentRecord.model)
   if (!card) throw new Error('Select an Active local Qwen-Image 2.1 image or MiniMax H3 video preset')
   const shot = buildRubyShot(card, currentRecord, kind, { ...rubyPresetDefaults(card), ...(controls.advanced || {}) })

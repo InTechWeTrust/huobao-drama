@@ -83,6 +83,10 @@ catalogue, native schema and shot capabilities. Refresh after Library edits.
 New jobs revalidate; queued jobs retain their captured card/graph version.
 VLO imports must be reimported when their source hash or revision changes.
 H3 Extend binds the original clip through native Ruby preview and builder rules.
+Both apps expose optional additional speech/audio tracks. The default preserves
+the project policy; explicitly disabling additional tracks bypasses its separate
+speech-provider request. Native H3/source sound remains governed by the original
+card. Blocked preview notes prevent queueing; no global sound policy is changed.
 Generated-window and new-portion duration are different per-card contracts.
 Long films assemble multiple shots/continuations; a 15-second card is not a
 15-second final-film limit. No one-minute quality render was executed here.

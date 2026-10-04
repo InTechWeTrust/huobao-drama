@@ -17,6 +17,10 @@
       <label>Shot resolution
         <select v-model="controls.resolution"><option value="">Use episode resolution</option><option v-for="resolution in vocabulary.resolutions || []" :key="resolution.id" :value="resolution.id">{{ resolution.id }}{{ resolution.needs_upscale ? ' · requires a supported enhancement pass' : '' }}</option></select>
       </label>
+      <label>Additional speech/audio tracks
+        <select v-model="controls.audio_enabled" aria-label="Additional speech/audio tracks"><option :value="null">Use existing project policy</option><option :value="false">No additional speech/audio tracks</option><option :value="true">Enable additional speech/audio tracks</option></select>
+        <small>Controls Ruby's additional tracks for this shot. Native H3 audio and the source clip's soundtrack remain governed by the preset. Preview reports any unavailable speech provider.</small>
+      </label>
       <details>
         <summary>Native preset inputs and advanced controls</summary>
         <label v-for="slot in editableSlots" :key="slot.name">{{ slot.label || slot.name }}{{ slot.required ? ' *' : '' }}
@@ -43,7 +47,7 @@ const props = defineProps<{ model: string; storyboardId: number; duration: numbe
 const emit = defineEmits(['duration-contract', 'vocabulary'])
 const card = ref<any>(null)
 const vocabulary = ref<any>({})
-const controls = ref<any>({ extend_from: '', extend_kind: '', resolution: '', advanced: {} })
+const controls = ref<any>({ extend_from: '', extend_kind: '', resolution: '', audio_enabled: null, advanced: {} })
 const bound = ref<any>(null)
 const error = ref(''), notice = ref(''), busy = ref(false)
 const durationSlot = computed(() => (card.value?.slots || []).find((slot: any) => slot.name === card.value?.bindings?.duration_s?.slot))
@@ -65,7 +69,7 @@ function load() { const revision = ++selectionRevision; return action(async () =
   const [data, saved] = await Promise.all([api.get(`/settings/ruby-media/presets/${encodeURIComponent(props.model)}`), api.get(`/settings/ruby-media/shot-controls/${props.storyboardId}`)])
   if (revision !== selectionRevision) return
   card.value = data.card; vocabulary.value = data.vocabulary
-  controls.value = saved.model === props.model ? { ...saved, advanced: saved.advanced || {} } : { extend_from: '', extend_kind: '', resolution: '', advanced: {} }
+  controls.value = saved.model === props.model ? { audio_enabled: null, ...saved, advanced: saved.advanced || {} } : { extend_from: '', extend_kind: '', resolution: '', audio_enabled: null, advanced: {} }
   emit('duration-contract', { slot: durationSlot.value, binding: card.value.bindings?.duration_s }); emit('vocabulary', data.vocabulary)
 }) }
 function body() { return { ...controls.value, model: props.model, duration: props.duration, prompt: props.prompt, aspectRatio: props.aspect, resolution: controls.value.resolution || props.resolution, referenceImageUrls: controls.value.extend_kind ? [] : props.references, extend_from: controls.value.extend_kind ? controls.value.extend_from : '' } }

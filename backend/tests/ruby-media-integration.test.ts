@@ -146,3 +146,42 @@ test('catalogue and native schema are read fresh when cards change or disappear'
     revision = 3; assert.deepEqual(await localRubyPresets('video'), []); assert.equal(schemaReads, 2)
   } finally { globalThis.fetch = original }
 })
+
+test('explicit additional-track opt-out persists per shot and survives native generation audio=true', async () => {
+  const drama = db.insert(schema.dramas).values({ title: 'Audio controls fixture', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+  const episode = db.insert(schema.episodes).values({ dramaId: drama.id, title: 'Audio fixture', episodeNumber: 1, createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+  const storyboard = db.insert(schema.storyboards).values({ episodeId: episode.id, storyboardNumber: 1, createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+  const card = { id: 'native-h3-audio', kind: 'video', engine: 'comfyui', state: 'active', slots: [], bindings: {} }
+  const original = globalThis.fetch
+  const submitted: any[] = [], previews: any[] = []
+  globalThis.fetch = async (url, options) => {
+    const route = new URL(String(url)).pathname, body = options?.body ? JSON.parse(String(options.body)) : null
+    if (route === '/api/projects') return Response.json({ projects: [{ slug: 'huobao', root: process.env.STORAGE_PATH }] })
+    if (route === '/api/presets') return Response.json({ presets: [card] })
+    if (route === '/api/shots/capabilities') return Response.json({ capabilities: {} })
+    if (route.endsWith('/schema')) return Response.json({ model: { id: 'minimax_h3', known: true, reason: "detected from the graph's nodes as MiniMax H3" } })
+    if (route === '/api/shots/preview') {
+      previews.push(body)
+      return Response.json({ values: { native_h3_audio: 'keep', source_audio: 'keep' }, notes: body.audio_enabled ? [{ field: 'speech', severity: 'blocked', message: 'Additional speech provider 7040 is offline' }] : [] })
+    }
+    if (route === '/api/library-use/sessions') return Response.json({ library_use_id: 'audio-test', pushed: [] })
+    if (route === '/api/jobs') { submitted.push(body); return Response.json({ ref: 'audio-job' }) }
+    throw new Error(route)
+  }
+  try {
+    const save = async (audio_enabled: unknown) => settings.request(`/ruby-media/shot-controls/${storyboard.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: card.id, audio_enabled, advanced: {} }) })
+    assert.equal((await save(false)).status, 200)
+    const persisted = (await (await settings.request(`/ruby-media/shot-controls/${storyboard.id}`)).json()).data
+    assert.equal(persisted.audio_enabled, false)
+    const preview = await settings.request('/ruby-media/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: card.id, ...persisted, prompt: 'Native soundtrack remains owner-governed' }) })
+    assert.equal(preview.status, 200); assert.equal(previews.at(-1).audio_enabled, false)
+    const task = db.insert(schema.sysTask).values({ type: 'video', provider: 'ruby', model: card.id, storyboardId: storyboard.id, prompt: '', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+    await submitRubyMedia('video', { id: task.id, model: card.id, generateAudio: true })
+    assert.equal(previews.at(-1).audio_enabled, false)
+    assert.deepEqual(submitted[0].values, { native_h3_audio: 'keep', source_audio: 'keep' })
+    assert.equal((await save(null)).status, 200)
+    await assert.rejects(submitRubyMedia('video', { id: task.id, model: card.id, generateAudio: true }), /Additional speech provider 7040 is offline/)
+    assert.equal(previews.at(-1).audio_enabled, true); assert.equal(submitted.length, 1)
+    assert.equal((await save('false')).status, 400)
+  } finally { globalThis.fetch = original }
+})

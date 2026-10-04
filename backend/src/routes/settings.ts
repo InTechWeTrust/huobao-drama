@@ -87,7 +87,7 @@ app.put('/ruby-media/shot-controls/:id', async (c) => {
   if (Object.keys(advanced).some(key => !names.has(key))) return badRequest(c, 'Unknown live preset control')
   try {
     buildRubyShot(card, { ...body, prompt: 'Validate local inputs', extendFrom: body.extend_from, extendKind: body.extend_kind }, card.kind, advanced)
-    const controls = { model: card.id, extend_from: body.extend_from || '', extend_kind: body.extend_kind || '', resolution: body.resolution || '', advanced }
+    const controls = { model: card.id, extend_from: body.extend_from || '', extend_kind: body.extend_kind || '', resolution: body.resolution || '', audio_enabled: body.audio_enabled ?? null, advanced }
     setRubyShotControls(id, controls)
     return success(c, controls)
   } catch (err) { return badRequest(c, (err as Error).message) }
