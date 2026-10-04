@@ -2,8 +2,8 @@ $ErrorActionPreference='Stop'
 $Desktop=[Environment]::GetFolderPath('Desktop')
 if(-not(Test-Path -LiteralPath $Desktop -PathType Container)){throw 'Desktop folder is unavailable'}
 $Launcher=Join-Path $PSScriptRoot 'local-suite.ps1'
-$Shell=(Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source
-if(-not $Shell){$Shell=(Get-Command powershell.exe).Source}
+$Shell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if(-not(Test-Path -LiteralPath $Shell -PathType Leaf)){throw 'Installed Windows PowerShell is unavailable'}
 $ShortcutShell=New-Object -ComObject WScript.Shell
 foreach($Item in @(@{Name='Huobao Drama';App='huobao'},@{Name='VLO';App='vlo'})){
   $Path=Join-Path $Desktop ($Item.Name+'.lnk')

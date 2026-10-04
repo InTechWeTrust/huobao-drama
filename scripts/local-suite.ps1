@@ -4,8 +4,8 @@ $Repo=Split-Path $PSScriptRoot -Parent
 $State='E:\Media\Huobao\.state\suite'
 $McpPython='D:\Other-projects\vlo\backend\.venv\Scripts\python.exe'
 New-Item -ItemType Directory -Force -Path $State | Out-Null
-$Shell=(Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source
-if(-not $Shell){ $Shell=(Get-Command powershell.exe).Source }
+$Shell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if(-not(Test-Path -LiteralPath $Shell -PathType Leaf)){throw 'Installed Windows PowerShell is unavailable'}
 function Start-LocalApp($Name,$Port,$Script) {
   if(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue){
     $StatusPath=if($Name -eq 'huobao'){'/api/v1/machine/status'}else{'/api/machine/status'}
