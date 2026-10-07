@@ -21,28 +21,39 @@
     </section>
     <section>
       <h3>Local generation</h3>
+      <label><input v-model="showOld" type="checkbox" :disabled="busy" @change="refreshPresets"> Show Old</label>
+      <button class="btn" :disabled="busy" @click="refreshPresets">Refresh Library presets</button>
       <label>Qwen-Image 2.1 preset
         <select v-model="defaults.image" aria-label="Image preset">
           <option value="">Select a local preset</option>
-          <option v-for="card in presets.filter(p => p.kind === 'image')" :key="card.id" :value="card.id">{{ card.title }}</option>
+          <optgroup v-for="group in presetGroups" :key="group.label" :label="group.label">
+            <option v-for="card in group.cards.filter((p: any) => p.kind === 'image')" :key="card.id" :value="card.id" :disabled="!card.generationEligible">{{ card.title }}{{ card.state === 'lab' ? ' · Lab' : '' }}</option>
+          </optgroup>
         </select>
       </label>
       <label>MiniMax H3 preset
         <select v-model="defaults.video" aria-label="Video preset">
           <option value="">Select a local preset</option>
-          <option v-for="card in presets.filter(p => p.kind === 'video')" :key="card.id" :value="card.id">{{ card.title }}</option>
+          <optgroup v-for="group in presetGroups" :key="group.label" :label="group.label">
+            <option v-for="card in group.cards.filter((p: any) => p.kind === 'video')" :key="card.id" :value="card.id" :disabled="!card.generationEligible">{{ card.title }}{{ card.state === 'lab' ? ' · Lab' : '' }}</option>
+          </optgroup>
         </select>
       </label>
-      <button class="btn" :disabled="busy || !defaults.image || !defaults.video" @click="saveDefaults">Save generation presets</button>
+      <button class="btn" :disabled="busy || !defaultsReady" @click="saveDefaults">Save generation presets</button>
       <p>These are defaults. The project model pickers list all currently Active H3/Qwen presets; each shot has its own live controls. Qwen's edit preset needs a reference picture.</p>
       <label>Preset controls
         <select v-model="editPreset" @change="loadPreset" aria-label="Preset controls">
           <option value="">Choose a preset to inspect</option>
-          <option v-for="card in presets" :key="card.id" :value="card.id">{{ card.title }}</option>
+          <optgroup v-for="group in presetGroups" :key="group.label" :label="group.label">
+            <option v-for="card in group.cards" :key="card.id" :value="card.id">{{ card.title }}{{ card.state === 'lab' ? ' · Lab' : '' }}</option>
+          </optgroup>
         </select>
       </label>
       <div v-if="selectedCard">
         <p>{{ selectedCard.description }}</p>
+        <p>{{ selectedCard.group }}<span v-if="selectedCard.state === 'lab'" class="library-badge">Lab</span></p>
+        <p v-if="!selectedCard.generationEligible">Library entry is available for inspection. Generation requires an Active preset with verified local model support.</p>
+        <fieldset :disabled="!selectedCard.generationEligible || busy">
         <label v-for="slot in editableSlots" :key="slot.name">
           {{ slot.label || slot.name }}{{ slot.required ? ' *' : '' }}
           <select v-if="slot.options?.length" v-model="slotValues[slot.name]">
@@ -52,7 +63,8 @@
           <input v-else v-model="slotValues[slot.name]" :placeholder="slot.type.endsWith('_asset') ? 'Local Ruby KeyAsset path' : ''">
           <small>{{ slot.help || slot.why }}</small>
         </label>
-        <button class="btn" :disabled="busy" @click="savePreset">Save preset controls</button>
+        <button class="btn" :disabled="busy || !selectedCard.generationEligible" @click="savePreset">Save preset controls</button>
+        </fieldset>
       </div>
     </section>
     <section>
@@ -83,6 +95,9 @@ const effortsByModel = ref<Record<string, string[]>>({})
 const availableEfforts = computed(() => effortsByModel.value[brain.model] || efforts.value)
 watch(() => brain.model, () => { if (!availableEfforts.value.includes(brain.effort)) brain.effort = 'low' })
 const presets = ref<any[]>([])
+const showOld = ref(false)
+const presetGroups = computed(() => ['Active', 'Lab', ...(showOld.value ? ['Old'] : [])].map(label => ({ label, cards: presets.value.filter(card => card.group === label) })))
+const defaultsReady = computed(() => ['image', 'video'].every(kind => presets.value.some(card => card.id === defaults[kind as 'image' | 'video'] && card.kind === kind && card.generationEligible)))
 const defaults = reactive({ image: '', video: '' })
 const editPreset = ref('')
 const selectedCard = ref<any>(null)
@@ -105,6 +120,10 @@ async function action(work: () => Promise<void>) {
   try { await work() } catch (err) { error.value = (err as Error).message } finally { busy.value = false }
 }
 function saveBrain() { return action(async () => { await api.put('/settings/machine-brain', brain); notice.value = 'Brain saved' }) }
+function refreshPresets() { return action(async () => {
+  presets.value = (await api.get(`/settings/ruby-media/presets${showOld.value ? '?show_old=1' : ''}`)).presets
+  selectedCard.value = null; editPreset.value = ''
+}) }
 function saveDefaults() { return action(async () => { await api.put('/settings/ruby-media/defaults', defaults); notice.value = 'Local generation presets saved' }) }
 function loadPreset() { return action(async () => {
   if (!editPreset.value) { selectedCard.value = null; return }
@@ -140,6 +159,7 @@ onMounted(() => action(async () => {
 section { padding: 20px; background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 12px; }
 label { display: grid; gap: 5px; color: var(--text-1); }
 input, select { padding: 8px; background: var(--bg-2); color: var(--text-0); border: 1px solid var(--border); border-radius: 6px; }
+fieldset { border: 0; padding: 0; min-width: 0; } .library-badge { margin-left: 8px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; font-size: 12px; }
 small, p { color: var(--text-2); }.error { color: var(--error); }
 </style>

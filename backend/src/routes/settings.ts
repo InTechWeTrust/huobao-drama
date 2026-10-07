@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm'
 import { now } from '../utils/response.js'
 import { MACHINE_MODELS, MACHINE_EFFORTS, MACHINE_EFFORTS_BY_MODEL, parseConfigEffort } from '../services/ai.js'
 import { getEpisodeBrain, setEpisodeBrain } from '../services/episode-brain.js'
-import { localRubyPresets, getRubyValues, setRubyValues, submitRubyMedia, readRubyMedia, rubyRequest, getRubyShotControls, setRubyShotControls, buildRubyShot, rubyPresetDefaults } from '../services/ruby-media.js'
+import { localRubyPresetCatalogue, localRubyPresets, getRubyValues, setRubyValues, submitRubyMedia, readRubyMedia, rubyRequest, getRubyShotControls, setRubyShotControls, buildRubyShot, rubyPresetDefaults } from '../services/ruby-media.js'
 
 const app = new Hono()
 
@@ -52,7 +52,7 @@ app.put('/machine-brain', async (c) => {
 })
 
 app.get('/ruby-media/presets', async (c) => {
-  try { return success(c, { presets: await localRubyPresets() }) } catch (err) { return badRequest(c, (err as Error).message) }
+  try { return success(c, { presets: await localRubyPresetCatalogue(c.req.query('show_old') === '1') }) } catch (err) { return badRequest(c, (err as Error).message) }
 })
 
 app.get('/ruby-media', async (c) => {
@@ -64,8 +64,8 @@ app.get('/ruby-media', async (c) => {
 
 app.get('/ruby-media/presets/:preset', async (c) => {
   const preset = c.req.param('preset')
-  const card = (await localRubyPresets()).find((item: any) => item.id === preset)
-  if (!card) return badRequest(c, 'Preset is outside the enabled local model set')
+  const card = (await localRubyPresetCatalogue(true)).find((item: any) => item.id === preset)
+  if (!card) return badRequest(c, 'Preset is outside the local Library catalogue')
   return success(c, { card, values: getRubyValues(preset), vocabulary: await rubyRequest('/api/shots/vocabulary') })
 })
 

@@ -1,3 +1,4 @@
+import { readRubyPresetCatalogue } from './ruby-preset-catalogue.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { STORAGE_ROOT } from '../utils/paths.js'
@@ -6,7 +7,7 @@ import { db, schema } from '../db/index.js'
 import { getAbsolutePath } from '../utils/storage.js'
 import { sharedMediaReference } from '../utils/shared-media-reference.js'
 import { now } from '../utils/response.js'
-import { allowedRubyPreset, parseRubyJob, rubyLoopbackBase, RUBY_HEADERS, type MediaKind } from './ruby-media-policy.js'
+import { parseRubyJob, rubyLoopbackBase, RUBY_HEADERS, type MediaKind } from './ruby-media-policy.js'
 
 export async function rubyRequest(route: string, body?: unknown) {
   const response = await fetch(`${rubyLoopbackBase()}${route}`, {
@@ -17,22 +18,12 @@ export async function rubyRequest(route: string, body?: unknown) {
   return response.json() as Promise<any>
 }
 
-const schemaCache = new Map<string, { expires: number; value: any }>()
+export function localRubyPresetCatalogue(showOld = false) {
+  return readRubyPresetCatalogue(rubyRequest, { showOld, fresh: true })
+}
+
 export async function localRubyPresets(kind?: MediaKind, fresh = true) {
-  const [data, capabilities] = await Promise.all([rubyRequest('/api/presets?state=active'), rubyRequest('/api/shots/capabilities')])
-  const candidates = (data.presets || []).filter((card: any) => card.engine === 'comfyui' && card.state === 'active' && !card.repair && ['image', 'video'].includes(card.produces || card.kind) && (!kind || (card.produces || card.kind) === kind))
-  const enriched = await Promise.all(candidates.map(async (card: any) => {
-    const key = `${card.id}:${card.version || ''}`
-    let cached = schemaCache.get(key)
-    if (fresh || !cached || cached.expires <= Date.now()) {
-      try {
-        cached = { value: await rubyRequest(`/api/presets/${encodeURIComponent(card.id)}/schema`), expires: Date.now() + 30_000 }
-        schemaCache.set(key, cached)
-      } catch { return null } // Unverified family never becomes an enabled provider.
-    }
-    return { ...card, kind: card.produces || card.kind, runtimeSchema: cached.value, shotCapability: capabilities.capabilities?.[card.id] }
-  }))
-  return enriched.filter((card: any) => card && allowedRubyPreset(card, kind))
+  return (await readRubyPresetCatalogue(rubyRequest, { kind, fresh })).filter(card => card.generationEligible)
 }
 
 export function getRubyValues(preset: string): Record<string, unknown> {
