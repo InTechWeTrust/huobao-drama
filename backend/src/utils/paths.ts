@@ -16,8 +16,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '../../..')
 
 export const DATA_ROOT = process.env.HUOBAO_DATA_DIR
-  ?? (process.env.STORAGE_PATH
+  ?? (process.platform === 'win32' ? 'E:/Media/Huobao/.state' : process.env.STORAGE_PATH
     ? path.dirname(path.resolve(process.env.STORAGE_PATH))
     : path.join(repoRoot, 'data'))
 
-export const STORAGE_ROOT = process.env.STORAGE_PATH ?? path.join(DATA_ROOT, 'static')
+export const STORAGE_ROOT = process.env.STORAGE_PATH ?? (process.platform === 'win32' ? 'E:/Media/Huobao/Project' : path.join(DATA_ROOT, 'static'))
+export const TEMP_ROOT = process.env.HUOBAO_TEMP_DIR ?? (process.platform === 'win32' ? 'E:/Media/Huobao/Temp' : path.join(DATA_ROOT, 'temp'))

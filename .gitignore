@@ -41,6 +41,7 @@ data/storage/
 configs/config.yaml
 
 # Misc
+__pycache__/
 tmp/
 temp/
 .superpowers/

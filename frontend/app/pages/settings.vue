@@ -73,7 +73,8 @@
         </div>
 
         <!-- ===== AI 服务配置 ===== -->
-        <div v-if="tab === 'ai'" class="settings-scroll">
+        <div v-if="tab === 'ai'" class="settings-scroll"><LocalMachineSettings /></div>
+        <div v-if="false" class="settings-scroll">
           <div class="settings-head">
             <h2 class="settings-title">{{ t('settings.ai.title') }}</h2>
             <p class="settings-desc">{{ t('settings.ai.desc') }}</p>
@@ -686,6 +687,7 @@
 <script setup>
 import { Plus, Pencil, Trash2, FileText, ChevronDown, Check, Loader2, Bot, Cpu, Sparkles, Palette, ExternalLink, Star, HardDrive, Database, RefreshCw, Download, Languages, SunMoon, X } from 'lucide-vue-next'
 import BaseSelect from '~/components/BaseSelect.vue'
+import LocalMachineSettings from '~/components/LocalMachineSettings.vue'
 import { toast } from 'vue-sonner'
 import { toastError } from '~/composables/useToast'
 import { useI18n } from 'vue-i18n'
