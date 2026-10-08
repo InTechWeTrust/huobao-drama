@@ -4,8 +4,9 @@ import { db, getInsertId, schema } from '../db/index.js'
 import { success, notFound, created, badRequest, now } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
-import { isOfficialProvider, parseConfigTemperature } from '../services/ai.js'
+import { isOfficialProvider, parseConfigTemperature, localServiceAllowed, MACHINE_MODELS, MACHINE_EFFORTS_BY_MODEL } from '../services/ai.js'
 import { redactUrl, logTaskError, logTaskProgress, logTaskSuccess } from '../utils/task-logger.js'
+import { localRubyPresets } from '../services/ruby-media.js'
 
 const app = new Hono()
 
@@ -19,9 +20,12 @@ function normalizeTemperature(v: any): number | null {
 
 /** 把 settings JSON 中的 temperature 透出为顶层字段，便于前端直接读写 */
 function withParsedFields(r: any) {
+  const models = r.model ? JSON.parse(r.model) : []
+  const machine = r.serviceType === 'text' && localServiceAllowed(r)
   return {
     ...toSnakeCase(r),
-    model: r.model ? JSON.parse(r.model) : [],
+    model: machine ? [...new Set([...models.filter((model: string) => (MACHINE_MODELS as readonly string[]).includes(model)), ...MACHINE_MODELS])] : models,
+    ...(machine ? { efforts_by_model: MACHINE_EFFORTS_BY_MODEL } : {}),
     temperature: parseConfigTemperature(r.settings),
   }
 }
@@ -121,7 +125,13 @@ app.get('/', async (c) => {
   let rows = await db.select().from(schema.aiServiceConfigs)
   if (serviceType) rows = rows.filter(r => r.serviceType === serviceType)
 
-  const parsed = rows.map(withParsedFields)
+  const cards = rows.some(row => row.provider === 'ruby') ? await localRubyPresets() : []
+  const parsed = rows.map(row => {
+    const config = withParsedFields(row)
+    if (row.provider !== 'ruby') return config
+    const enabled = cards.filter((card: any) => card.kind === row.serviceType).map((card: any) => card.id)
+    return { ...config, model: [...new Set([...config.model.filter((id: string) => enabled.includes(id)), ...enabled])], presets: cards.filter((card: any) => card.kind === row.serviceType) }
+  })
   return success(c, parsed)
 })
 
@@ -137,6 +147,8 @@ app.post('/', async (c) => {
   if (!isOfficialProvider(body.service_type, body.provider)) {
     return badRequest(c, '不支持的 service_type/provider')
   }
+
+  if (!localServiceAllowed({ serviceType: body.service_type, provider: body.provider, baseUrl: body.base_url })) return badRequest(c, 'Only the local machine bridge and Ruby media providers are enabled')
 
   let temperature: number | null = null
   if ('temperature' in body) {
@@ -176,6 +188,8 @@ app.post('/test', async (c) => {
   if (!isOfficialProvider(body.service_type, body.provider)) {
     return badRequest(c, '不支持的 service_type/provider')
   }
+
+  if (!localServiceAllowed({ serviceType: body.service_type, provider: body.provider, baseUrl: body.base_url })) return badRequest(c, 'Cloud API probes are disabled')
 
   const model = Array.isArray(body.model) ? body.model[0] : body.model
   const probe = buildProbe(body.service_type, body.provider, body.base_url, model, body.api_key)
@@ -259,6 +273,8 @@ app.put('/:id', async (c) => {
   if (!isOfficialProvider(serviceType, provider)) {
     return badRequest(c, '不支持的 service_type/provider')
   }
+
+  if (!localServiceAllowed({ serviceType, provider, baseUrl: body.base_url ?? existing.baseUrl })) return badRequest(c, 'Only the local machine bridge and Ruby media providers are enabled')
 
   const updates: Record<string, any> = { updatedAt: now() }
 

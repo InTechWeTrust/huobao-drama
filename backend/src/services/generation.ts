@@ -40,6 +40,8 @@ interface GenerateVideoParams {
   storyboardId?: number
   dramaId?: number
   prompt: string
+  extendFrom?: string
+  extendKind?: string
   model?: string
   referenceMode?: string
   imageUrl?: string
@@ -112,6 +114,8 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     model: params.model || config.model,
   }, {
     referenceMode: params.referenceMode || 'reference',
+    extendFrom: params.extendFrom,
+    extendKind: params.extendKind,
     imageUrl: params.imageUrl,
     firstFrameUrl: params.firstFrameUrl,
     lastFrameUrl: params.lastFrameUrl,
@@ -207,7 +211,7 @@ async function processTask(id: number, config: AIConfig) {
 
     if (type === 'image') {
       const adapter = getImageAdapter(config.provider)
-      const resolvedReferenceImages = await normalizeReferenceImages(params.referenceImages)
+      const resolvedReferenceImages = config.provider === 'ruby' ? (params.referenceImages || []) : await normalizeReferenceImages(params.referenceImages)
       ;({ url, method, headers, body } = adapter.buildGenerateRequest(config, {
         id: record.id,
         model: record.model,
@@ -218,19 +222,22 @@ async function processTask(id: number, config: AIConfig) {
       }))
     } else {
       const adapter = getVideoAdapter(config.provider)
-      const resolvedImageUrl = await normalizeVideoReferenceUrl(params.imageUrl)
-      const resolvedFirstFrameUrl = await normalizeVideoReferenceUrl(params.firstFrameUrl)
-      const resolvedLastFrameUrl = await normalizeVideoReferenceUrl(params.lastFrameUrl)
-      const resolvedReferenceImageUrls = await normalizeVideoReferenceUrls(params.referenceImageUrls)
+      const local = config.provider === 'ruby'
+      const resolvedImageUrl = local ? params.imageUrl : await normalizeVideoReferenceUrl(params.imageUrl)
+      const resolvedFirstFrameUrl = local ? params.firstFrameUrl : await normalizeVideoReferenceUrl(params.firstFrameUrl)
+      const resolvedLastFrameUrl = local ? params.lastFrameUrl : await normalizeVideoReferenceUrl(params.lastFrameUrl)
+      const resolvedReferenceImageUrls = local ? (params.referenceImageUrls || []) : await normalizeVideoReferenceUrls(params.referenceImageUrls)
       // 参考视频/音频文件较大，不适合 dataURL 内联，需解析为公网可访问 URL
-      const resolvedReferenceVideoUrls = resolvePublicMediaUrls(params.referenceVideoUrls, 'video')
-      const resolvedReferenceAudioUrls = resolvePublicMediaUrls(params.referenceAudioUrls, 'audio')
-      const resolvedReferenceFileUrl = resolvePublicMediaUrl(params.referenceFileUrl, 'file')
+      const resolvedReferenceVideoUrls = local ? (params.referenceVideoUrls || []) : resolvePublicMediaUrls(params.referenceVideoUrls, 'video')
+      const resolvedReferenceAudioUrls = local ? (params.referenceAudioUrls || []) : resolvePublicMediaUrls(params.referenceAudioUrls, 'audio')
+      const resolvedReferenceFileUrl = local ? params.referenceFileUrl : resolvePublicMediaUrl(params.referenceFileUrl, 'file')
       ;({ url, method, headers, body } = adapter.buildGenerateRequest(config, {
         id: record.id,
         model: record.model,
         prompt: record.prompt,
         referenceMode: params.referenceMode,
+        extendFrom: params.extendFrom,
+        extendKind: params.extendKind,
         imageUrl: resolvedImageUrl,
         firstFrameUrl: resolvedFirstFrameUrl,
         lastFrameUrl: resolvedLastFrameUrl,
@@ -579,7 +586,5 @@ function resolvePublicMediaUrls(refs: string[] | null | undefined, kind: 'video'
 
 function normalizeStoredVideoResolution(resolution: string | null | undefined): string | undefined {
   const value = String(resolution || '').trim().toLowerCase()
-  if (value === '480p' || value === '720p' || value === '1080p') return value
-  if (value === '2k') return '2K'
-  return undefined
+  return value || undefined // Live Ruby preview validates its current vocabulary; never silently drop a requested tier.
 }
