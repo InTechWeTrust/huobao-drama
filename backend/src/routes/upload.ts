@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { success, badRequest } from '../utils/response.js'
-import { saveUploadedFile, generateImageThumb } from '../utils/storage.js'
+import { saveUploadedFile, generateImageThumb, taskMediaSubdir } from '../utils/storage.js'
+import { resolveMediaScope } from '../utils/media-owner.js'
 
 const app = new Hono()
 
@@ -13,8 +14,11 @@ app.post('/image', async (c) => {
     return badRequest(c, '文件必填')
   }
 
+  let directory: string
+  try { directory = taskMediaSubdir(resolveMediaScope(body), 'uploads') }
+  catch (error) { return badRequest(c, (error as Error).message) }
   const buffer = await file.arrayBuffer()
-  const path = await saveUploadedFile(buffer, 'uploads', file.name)
+  const path = await saveUploadedFile(buffer, directory, file.name)
   // 同步生成列表页缩略图，上传图与生图走同一套展示链路（失败不影响上传结果）
   await generateImageThumb(path)
   return success(c, { url: `/${path}`, path })
@@ -52,11 +56,14 @@ async function saveMediaUpload(
   if (!allowedExt.has(ext) || (mimeKnown && !allowedMime.has(file.type))) {
     return badRequest(c, `仅支持 ${Array.from(allowedExt).join('/')} 格式的${label}文件`)
   }
+  let directory: string
+  try { directory = taskMediaSubdir(resolveMediaScope(body), 'uploads') }
+  catch (error) { return badRequest(c, (error as Error).message) }
   const buffer = await file.arrayBuffer()
   if (buffer.byteLength > maxBytes) {
     return badRequest(c, `${label}文件大小不能超过 ${Math.round(maxBytes / 1024 / 1024)}MB`)
   }
-  const path = await saveUploadedFile(buffer, 'uploads', file.name)
+  const path = await saveUploadedFile(buffer, directory, file.name)
   return success(c, { url: `/${path}`, path })
 }
 

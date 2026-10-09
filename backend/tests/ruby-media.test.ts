@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { allowedRubyPreset, parseRubyJob } from '../src/services/ruby-media-policy.js'
 import { RubyImageAdapter, RubyVideoAdapter } from '../src/services/adapters/ruby-media.js'
+import { rubyProjectSlug } from '../src/services/ruby-media.js'
 
 test('only active local Qwen2.1 and H3 are eligible', () => {
   const card = { id: 'qwen_image_2_1_edit', engine: 'comfyui', state: 'active', kind: 'image', runtimeSchema: { model: { id: 'qwen_image_2_1', known: true }, standard: [{ patch: [{ class_type: 'TextEncodeQwenImage21' }] }] } }
@@ -28,4 +29,9 @@ test('native asynchronous adapter lifecycle preserves job identity and failure',
   assert.match(completed.imageUrl!, /^http:\/\/127.0.0.1:7010\/api\/media\?path=/)
   assert.throws(() => parseRubyJob({ status: 'succeeded', result: {} }, 'video', ''))
   assert.throws(() => new RubyVideoAdapter().buildGenerateRequest({ ...config, baseUrl: 'https://example.com' }, { id: 1 }))
+})
+
+test('ruby project slug is stable per Huobao drama', () => {
+  assert.equal(rubyProjectSlug({ dramaId: 42 }), 'huobao-drama-42')
+  assert.throws(() => rubyProjectSlug({ dramaId: null }), /drama id/)
 })

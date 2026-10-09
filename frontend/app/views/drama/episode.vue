@@ -3273,7 +3273,7 @@ function uploadAssetImage(kind, id) {
     const key = `${kind}:${id}`
     if (!uploadingAssetKeys.value.includes(key)) uploadingAssetKeys.value.push(key)
     try {
-      const res = await uploadAPI.image(file)
+      const res = await uploadAPI.image(file, { drama_id: dramaId, [`${kind}_id`]: id })
       // 与生图回写保持一致：存相对路径（static/...），前端展示时补前导斜杠
       const payload = { image_url: res.path, local_path: res.path }
       if (kind === 'character') await characterAPI.update(id, payload)

@@ -14,6 +14,8 @@ process.env.MYSQL_AUTO_IMPORT = 'false'
 const { default: settings } = await import('../src/routes/settings.js')
 const { db, schema } = await import('../src/db/index.js')
 const { submitRubyMedia } = await import('../src/services/ruby-media.js')
+const drama = db.insert(schema.dramas).values({ title: 'Library state fixture',
+  createdAt: '2026-10-09', updatedAt: '2026-10-09' }).returning().get()
 const cards = ['active', 'lab', 'old'].map(state => ({ id: `fixture-${state}`, title: `Fixture ${state}`, kind: 'video', state, engine: 'comfyui', slots: [], bindings: {} }))
 const evidence = { model: { id: 'minimax_h3', known: true, reason: "detected from the graph's nodes as MiniMax H3" } }
 async function withRuby(work: (requests: string[]) => Promise<void>) {
@@ -28,6 +30,9 @@ async function withRuby(work: (requests: string[]) => Promise<void>) {
     if (value.pathname === '/api/library-use/sessions') return Response.json({ library_use_id: 'fixture-use', pushed: [] })
     if (value.pathname === '/api/jobs') return Response.json({ ref: 'fixture-render' })
     if (value.pathname === '/api/projects') return Response.json({ projects: [{ slug: 'huobao', root: process.env.STORAGE_PATH }] })
+    if (value.pathname === '/api/paths/native-projects') return Response.json({
+      slug: `huobao-drama-${drama.id}`, root: path.join(process.env.STORAGE_PATH!, `huobao-drama-${drama.id}`),
+    })
     throw new Error(`Unexpected service route ${value.pathname}`)
   }
   try { await work(requests) } finally { globalThis.fetch = original }
@@ -51,7 +56,7 @@ test('Lab and Old details remain inspectable but default and control mutation is
 }))
 test('Lab and Old native tasks refuse before preview, consultation, or render submission', async () => withRuby(async requests => {
   for (const state of ['lab', 'old']) {
-    const task = db.insert(schema.sysTask).values({ type: 'video', provider: 'ruby', model: `fixture-${state}`, status: 'processing', createdAt: '2026-10-07', updatedAt: '2026-10-07' }).returning().get()
+    const task = db.insert(schema.sysTask).values({ type: 'video', dramaId: drama.id, provider: 'ruby', model: `fixture-${state}`, status: 'processing', createdAt: '2026-10-07', updatedAt: '2026-10-07' }).returning().get()
     await assert.rejects(submitRubyMedia('video', { id: task.id, model: `fixture-${state}` }), /Active local/)
   }
   assert.equal(requests.some(route => ['/api/jobs', '/api/shots/preview', '/api/library-use/sessions'].includes(route)), false)
@@ -70,7 +75,7 @@ test('state changes after a saved selection revoke preview without overwriting s
 }))
 
  test('verified Active native task retains the existing preview/receipt/job submission path', async () => withRuby(async requests => {
-  const task = db.insert(schema.sysTask).values({ type: 'video', provider: 'ruby', model: cards[0].id, status: 'processing', createdAt: '2026-10-07', updatedAt: '2026-10-07' }).returning().get()
+  const task = db.insert(schema.sysTask).values({ type: 'video', dramaId: drama.id, provider: 'ruby', model: cards[0].id, status: 'processing', createdAt: '2026-10-07', updatedAt: '2026-10-07' }).returning().get()
   const result = await submitRubyMedia('video', { id: task.id, model: cards[0].id, prompt: 'Synthetic CPU fixture' })
   assert.equal(result.taskId, 'fixture-render'); assert.equal(result.consultation.library_use_id, 'fixture-use')
   assert.equal(requests.includes('/api/shots/preview'), true); assert.equal(requests.includes('/api/library-use/sessions'), true); assert.equal(requests.includes('/api/jobs'), true)

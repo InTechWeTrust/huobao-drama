@@ -72,7 +72,7 @@ function load() { const revision = ++selectionRevision; return action(async () =
   controls.value = saved.model === props.model ? { audio_enabled: null, ...saved, advanced: saved.advanced || {} } : { extend_from: '', extend_kind: '', resolution: '', audio_enabled: null, advanced: {} }
   emit('duration-contract', { slot: durationSlot.value, binding: card.value.bindings?.duration_s }); emit('vocabulary', data.vocabulary)
 }) }
-function body() { return { ...controls.value, model: props.model, duration: props.duration, prompt: props.prompt, aspectRatio: props.aspect, resolution: controls.value.resolution || props.resolution, referenceImageUrls: controls.value.extend_kind ? [] : props.references, extend_from: controls.value.extend_kind ? controls.value.extend_from : '' } }
+function body() { return { ...controls.value, storyboardId: props.storyboardId, model: props.model, duration: props.duration, prompt: props.prompt, aspectRatio: props.aspect, resolution: controls.value.resolution || props.resolution, referenceImageUrls: controls.value.extend_kind ? [] : props.references, extend_from: controls.value.extend_kind ? controls.value.extend_from : '' } }
 function save() { return action(async () => { await api.put(`/settings/ruby-media/shot-controls/${props.storyboardId}`, body()); notice.value = 'Controls saved for this shot' }) }
 function preview() { return action(async () => { bound.value = await api.post('/settings/ruby-media/preview', body()) }) }
 watch(() => [props.model, props.storyboardId], load, { immediate: true })

@@ -6,7 +6,7 @@ import { db, getInsertId, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { getActiveConfig, getConfigById } from './ai.js'
 import { now } from '../utils/response.js'
-import { downloadFile, fetchImageAsCompressedDataUrl, generateImageThumb, readImageAsCompressedDataUrl, readImageAsDataUrl, saveBase64Image } from '../utils/storage.js'
+import { downloadFile, fetchImageAsCompressedDataUrl, generateImageThumb, readImageAsCompressedDataUrl, readImageAsDataUrl, saveBase64Image, taskMediaSubdir } from '../utils/storage.js'
 import { extractVideoPoster } from '../utils/video-poster.js'
 import { getImageAdapter, getVideoAdapter } from './adapters/registry'
 import type { AIConfig } from './adapters/types'
@@ -68,6 +68,7 @@ export async function generateImage(params: GenerateImageParams): Promise<number
     ? (await getConfigById(params.configId)) ?? await getActiveConfig('image')
     : await getActiveConfig('image')
   if (!config) throw new Error('未配置图片模型，请先到「设置」页添加并启用 AI 服务')
+  if (config.provider === 'ruby' && !params.dramaId) throw new Error('Ruby media rendering needs a native Huobao drama id')
 
   const id = await createTask('image', config, {
     storyboardId: params.storyboardId,
@@ -106,6 +107,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     ? (await getConfigById(params.configId)) ?? await getActiveConfig('video')
     : await getActiveConfig('video')
   if (!config) throw new Error('未配置视频模型，请先到「设置」页添加并启用 AI 服务')
+  if (config.provider === 'ruby' && !params.dramaId) throw new Error('Ruby media rendering needs a native Huobao drama id')
 
   const id = await createTask('video', config, {
     storyboardId: params.storyboardId,
@@ -418,7 +420,7 @@ async function pollTask(record: SysTaskRecord, config: AIConfig, taskId: string)
 }
 
 async function handleImageComplete(record: SysTaskRecord, imageUrl: string) {
-  const localPath = await downloadFile(imageUrl, 'images')
+  const localPath = await downloadFile(imageUrl, taskMediaSubdir(record, 'images'))
   // 列表页缩略图（前端按命名约定推导地址，失败不影响主流程）
   await generateImageThumb(localPath)
 
@@ -432,7 +434,7 @@ async function handleImageComplete(record: SysTaskRecord, imageUrl: string) {
 }
 
 async function handleImageCompleteBase64(record: SysTaskRecord, base64Data: string, mimeType: string) {
-  const localPath = await saveBase64Image(base64Data, mimeType, 'images')
+  const localPath = await saveBase64Image(base64Data, mimeType, taskMediaSubdir(record, 'images'))
   await generateImageThumb(localPath)
 
   await db.update(schema.sysTask)
@@ -466,7 +468,7 @@ async function writeBackImageAssets(record: SysTaskRecord, localPath: string) {
 }
 
 async function handleVideoComplete(record: SysTaskRecord, videoUrl: string, duration: number | null | undefined) {
-  const localPath = await downloadFile(videoUrl, 'videos')
+  const localPath = await downloadFile(videoUrl, taskMediaSubdir(record, 'videos'))
   // 海报帧供列表/封面展示，避免前端为显示首帧缓冲整个视频
   await extractVideoPoster(localPath)
   await db.update(schema.sysTask)

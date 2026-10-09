@@ -13,6 +13,14 @@ import { localRubyPresetCatalogue, localRubyPresets, getRubyValues, setRubyValue
 
 const app = new Hono()
 
+function storyboardScope(storyboardId: number) {
+  const storyboard = db.select().from(schema.storyboards).where(eq(schema.storyboards.id, storyboardId)).get()
+  if (!storyboard) throw new Error('Storyboard does not exist')
+  const episode = db.select().from(schema.episodes).where(eq(schema.episodes.id, storyboard.episodeId)).get()
+  if (!episode) throw new Error('Storyboard episode does not exist')
+  return { storyboardId: storyboard.id, episodeId: episode.id, dramaId: episode.dramaId }
+}
+
 app.get('/machine-brain/episodes/:id', async (c) => {
   const id = Number(c.req.param('id'))
   if (!db.select().from(schema.episodes).where(eq(schema.episodes.id, id)).get()) return badRequest(c, 'Episode does not exist')
@@ -86,7 +94,7 @@ app.put('/ruby-media/shot-controls/:id', async (c) => {
   const names = new Set(card.slots.map((slot: any) => slot.name))
   if (Object.keys(advanced).some(key => !names.has(key))) return badRequest(c, 'Unknown live preset control')
   try {
-    buildRubyShot(card, { ...body, prompt: 'Validate local inputs', extendFrom: body.extend_from, extendKind: body.extend_kind }, card.kind, advanced)
+    buildRubyShot(card, { ...body, ...storyboardScope(id), prompt: 'Validate local inputs', extendFrom: body.extend_from, extendKind: body.extend_kind }, card.kind, advanced)
     const controls = { model: card.id, extend_from: body.extend_from || '', extend_kind: body.extend_kind || '', resolution: body.resolution || '', audio_enabled: body.audio_enabled ?? null, advanced }
     setRubyShotControls(id, controls)
     return success(c, controls)
@@ -98,7 +106,8 @@ app.post('/ruby-media/preview', async (c) => {
   const card = (await localRubyPresets(undefined, true)).find((item: any) => item.id === body?.model)
   if (!card) return badRequest(c, 'Preset was removed, disabled or changed to an unsupported model family; refresh the picker')
   try {
-    const shot = buildRubyShot(card, { ...body, extendFrom: body.extend_from, extendKind: body.extend_kind }, card.kind, { ...rubyPresetDefaults(card), ...(body.advanced || {}) })
+    const scope = storyboardScope(Number(body.storyboardId))
+    const shot = buildRubyShot(card, { ...body, ...scope, extendFrom: body.extend_from, extendKind: body.extend_kind }, card.kind, { ...rubyPresetDefaults(card), ...(body.advanced || {}) })
     const preview = await rubyRequest('/api/shots/preview', shot)
     return success(c, { ...preview, card_version: card.version, delivery_requires_enhancement: (preview.notes || []).some((note: any) => note.field === 'resolution' && /needs an upscale pass|fixed dimensions/i.test(note.message)) })
   } catch (err) { return badRequest(c, (err as Error).message) }

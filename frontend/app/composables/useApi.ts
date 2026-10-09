@@ -105,9 +105,17 @@ export const taskAPI = {
   listByEpisode: (episodeId: number) => api.get<{ tasks: any[]; merges: any[] }>(`/episodes/${episodeId}/generation-tasks`),
 }
 
-async function uploadReq<T = any>(path: string, file: File): Promise<T> {
+type UploadScope = {
+  drama_id?: number; episode_id?: number; storyboard_id?: number
+  character_id?: number; scene_id?: number; prop_id?: number
+}
+
+async function uploadReq<T = any>(path: string, file: File, scope: UploadScope = {}): Promise<T> {
   const fd = new FormData()
   fd.append('file', file)
+  for (const [key, value] of Object.entries(scope)) {
+    if (value !== undefined) fd.append(key, String(value))
+  }
   console.log(`%c[API] %cPOST %c${path} %c${file.name}`, 'color:#888', 'color:#4fc3f7;font-weight:bold', 'color:#ccc', 'color:#888')
   const resp = await fetch(`${BASE}${path}`, { method: 'POST', body: fd })
   const json = await resp.json()
@@ -119,9 +127,9 @@ async function uploadReq<T = any>(path: string, file: File): Promise<T> {
 }
 
 export const uploadAPI = {
-  image: (f: File) => uploadReq<{ url: string; path: string }>('/upload/image', f),
-  video: (f: File) => uploadReq<{ url: string; path: string }>('/upload/video', f),
-  audio: (f: File) => uploadReq<{ url: string; path: string }>('/upload/audio', f),
+  image: (f: File, scope?: UploadScope) => uploadReq<{ url: string; path: string }>('/upload/image', f, scope),
+  video: (f: File, scope?: UploadScope) => uploadReq<{ url: string; path: string }>('/upload/video', f, scope),
+  audio: (f: File, scope?: UploadScope) => uploadReq<{ url: string; path: string }>('/upload/audio', f, scope),
 }
 export const mergeAPI = {
   merge: (epId: number, storyboardIds?: number[]) => api.post(`/merge/episodes/${epId}/merge`, storyboardIds?.length ? { storyboard_ids: storyboardIds } : {}),

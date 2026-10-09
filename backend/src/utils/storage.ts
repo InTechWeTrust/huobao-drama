@@ -7,6 +7,52 @@ import sharp from 'sharp'
 import { v4 as uuid } from 'uuid'
 import { STORAGE_ROOT } from './paths.js'
 import { confinedPath } from './confined-path.js'
+import { sharedMediaReference } from './shared-media-reference.js'
+
+export type MediaScope = {
+  dramaId?: number | null
+  episodeId?: number | null
+  storyboardId?: number | null
+  sceneId?: number | null
+  characterId?: number | null
+  propId?: number | null
+}
+
+function stableId(label: string, value: number | null | undefined): string | null {
+  if (value == null) return null
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${label} must be a positive native id`)
+  return `${label}-${value}`
+}
+
+export function mediaProjectSlug(scope: MediaScope): string {
+  return stableId('huobao-drama', scope.dramaId) || 'Unassigned'
+}
+
+export function taskMediaSubdir(scope: MediaScope, leaf: 'images' | 'videos' | 'uploads' | 'merged' | 'audio' | 'files'): string {
+  const project = mediaProjectSlug(scope)
+  const episodeId = stableId('episode', scope.episodeId)
+  const episode = episodeId ? `Episode ${String(scope.episodeId).padStart(2, '0')}` : null
+  const shot = stableId('shot', scope.storyboardId)
+  const assets = [
+    ['Place', stableId('place', scope.sceneId)],
+    ['Character', stableId('character', scope.characterId)],
+    ['Prop', stableId('prop', scope.propId)],
+  ]
+  if (leaf === 'merged') return [project, '02 Output', 'film', episode].filter(Boolean).join('/')
+  if (!shot && (leaf === 'images' || leaf === 'uploads')) {
+    const targets = assets.filter(([, id]) => id)
+    if (targets.length > 1) throw new Error('Media needs one native asset owner')
+    const asset = targets[0]
+    if (asset) return [project, 'KeyAsset', ...asset, 'Reference'].join('/')
+  }
+  if (leaf === 'uploads') return `${project}/01 Input`
+  const part = { images: shot ? 'Frames' : 'Images', videos: 'Takes', audio: 'Audio', files: 'Artifacts' }[leaf]
+  return [project, '06 Scenes', episode, 'Unassigned', part, shot].filter(Boolean).join('/')
+}
+
+export function unassignedMediaSubdir(leaf: 'images' | 'videos' | 'uploads' | 'merged' | 'audio' | 'files'): string {
+  return taskMediaSubdir({}, leaf)
+}
 
 /**
  * 下载远程文件到本地存储
@@ -17,7 +63,9 @@ export async function downloadFile(url: string, subDir: string): Promise<string>
   if (source.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(source.hostname) && source.pathname === '/api/media') {
     const artifact = source.searchParams.get('path')
     if (artifact) {
-      const relative = path.relative(path.resolve(STORAGE_ROOT), path.resolve(artifact)).replace(/\\/g, '/')
+      const original = sharedMediaReference(artifact)
+      const relative = path.relative(path.resolve(STORAGE_ROOT), original).replace(/\\/g, '/')
+      if (relative.split('/')[0] !== subDir.split('/')[0]) throw new Error('Ruby artifact belongs to a different drama')
       const target = confinedPath(STORAGE_ROOT, relative)
       if (fs.existsSync(target) && fs.statSync(target).isFile()) return `static/${relative}`
       throw new Error('Ruby completed artifact is missing from the shared project')

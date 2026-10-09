@@ -6,6 +6,7 @@ import { generateImage, generateVideo } from '../services/generation.js'
 import { getActiveConfig, getConfigById } from '../services/ai.js'
 import { getDramaStylePrompt } from '../services/style-preset.js'
 import { logTaskError, logTaskPayload, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { resolveMediaScope } from '../utils/media-owner.js'
 
 const app = new Hono()
 
@@ -118,6 +119,7 @@ app.post('/', async (c) => {
   const videoBody = type === 'video' ? normalizeVideoRequest(body) : null
 
   try {
+    const mediaScope = resolveMediaScope(body)
     // 请求显式指定 config_id（工作台模型下拉跨厂商切换）时优先；
     // 未指定才回退到集锁定配置，避免锁定配置与所选模型错配（如锁定 Seedance 却传 MiniMax 模型名）
     let configId: number | undefined = body.config_id
@@ -147,24 +149,25 @@ app.post('/', async (c) => {
       storyboardId: body.storyboard_id,
       sceneId: body.scene_id,
       characterId: body.character_id,
-      dramaId: body.drama_id,
+      dramaId: mediaScope.dramaId,
     })
     logTaskPayload('TaskAPI', 'request body', body)
 
     // 视频生成时把项目视觉风格词注入提示词最前方（与图片侧的自动注入保持一致口径）
     let videoPrompt = videoBody?.prompt
     if (type === 'video' && String(videoPrompt || '').trim()) {
-      const dramaId = body.drama_id ?? storyboardDramaId ?? null
+      const dramaId = mediaScope.dramaId ?? storyboardDramaId ?? null
       const stylePrompt = await getDramaStylePrompt(dramaId)
       if (stylePrompt) videoPrompt = `${stylePrompt}，\n${videoPrompt}`
     }
 
     const id = type === 'image'
       ? await generateImage({
-        storyboardId: body.storyboard_id,
-        dramaId: body.drama_id,
-        sceneId: body.scene_id,
-        characterId: body.character_id,
+        storyboardId: mediaScope.storyboardId ?? undefined,
+        dramaId: mediaScope.dramaId ?? undefined,
+        sceneId: mediaScope.sceneId ?? undefined,
+        characterId: mediaScope.characterId ?? undefined,
+        propId: mediaScope.propId ?? undefined,
         prompt: body.prompt,
         model: body.model,
         size: body.size,
@@ -173,8 +176,8 @@ app.post('/', async (c) => {
         configId,
       })
       : await generateVideo({
-        storyboardId: body.storyboard_id,
-        dramaId: body.drama_id,
+        storyboardId: mediaScope.storyboardId ?? undefined,
+        dramaId: mediaScope.dramaId ?? undefined,
         prompt: videoPrompt,
         model: videoBody!.model,
         referenceMode: 'reference',

@@ -3,11 +3,15 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import fs from 'node:fs'
 
-process.env.SQLITE_PATH = path.join('E:/Media/Huobao/Temp/tests/lifecycle', `lifecycle-${process.pid}.sqlite`)
+const scratch = path.join('E:/rubyapp/scratch/codex-130', `huobao-lifecycle-${process.pid}`)
+process.env.SQLITE_PATH = path.join(scratch, 'lifecycle.sqlite')
 process.env.HUOBAO_DATA_DIR = path.dirname(process.env.SQLITE_PATH)
-process.env.STORAGE_PATH = 'E:/Media/Huobao/Project'
+process.env.STORAGE_PATH = path.join(scratch, 'Project')
+process.env.HUOBAO_TEMP_DIR = path.join(scratch, 'Temp')
 
 const { db, schema } = await import('../src/db/index.js')
+const mediaDrama = db.insert(schema.dramas).values({ title: 'Media owner fixture', createdAt: '2026-10-09', updatedAt: '2026-10-09' }).returning().get()
+const mediaProject = { slug: `huobao-drama-${mediaDrama.id}`, root: path.join(process.env.STORAGE_PATH, `huobao-drama-${mediaDrama.id}`), layout: 2, media_app: 'huobao' }
 const { submitRubyMedia, readRubyMedia, buildRubyShot, localRubyPresets } = await import('../src/services/ruby-media.js')
 const { getActiveConfig } = await import('../src/services/ai.js')
 const { default: settings } = await import('../src/routes/settings.js')
@@ -67,7 +71,10 @@ test('native media task submits only local approved preset with same Library rec
     requests.push({ route, body, headers: options?.headers })
     assert.equal((options?.headers as any)['X-Ruby-Origin'], 'huobao-drama')
     assert.equal((options?.headers as any)['X-Ruby-Session'], 'huobao-drama')
-    if (route === '/api/projects') return Response.json({ projects: [{ slug: 'huobao', root: process.env.STORAGE_PATH }] })
+    if (route === '/api/paths/native-projects') {
+      assert.equal(body.app, 'huobao'); assert.equal(body.native_id, mediaDrama.id)
+      return Response.json(mediaProject)
+    }
     if (route === '/api/shots/capabilities') return Response.json({ capabilities: {} })
     if (route === '/api/presets') return Response.json({ presets: [card, { ...card, id: 'wan3' }] })
     if (route === `/api/presets/${card.id}/schema`) return Response.json({ model: { id: 'qwen_image_2_1', known: true }, standard: [{ patch: [{ class_type: 'TextEncodeQwenImage21' }] }] })
@@ -79,11 +86,11 @@ test('native media task submits only local approved preset with same Library rec
     throw new Error(`Unexpected route ${route}`)
   }
   try {
-    const task = db.insert(schema.sysTask).values({ type: 'image', provider: 'ruby', model: card.id, prompt: 'A forest', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+    const task = db.insert(schema.sysTask).values({ type: 'image', dramaId: mediaDrama.id, provider: 'ruby', model: card.id, prompt: 'A forest', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
     const submitted = await submitRubyMedia('image', { id: task.id, model: card.id, prompt: 'A forest' })
     assert.equal(submitted.taskId, '17')
     const post = requests.find(row => row.route === '/api/jobs')!
-    assert.equal(post.body.project, 'huobao')
+    assert.equal(post.body.project, mediaProject.slug)
     assert.equal(post.body.preset, card.id)
     assert.equal(post.body.values.prompt, 'A forest')
     assert.equal(post.body.values.length, 124)
@@ -103,27 +110,27 @@ test('pending native workspace mapping refuses jobs before any render request', 
   let called = 0
   globalThis.fetch = async (url) => {
     called++
-    assert.equal(new URL(String(url)).pathname, '/api/projects')
-    return Response.json({ projects: [{ slug: 'huobao', root: 'E:/Media/Rubyapp/Project/huobao' }] })
+    assert.equal(new URL(String(url)).pathname, '/api/paths/native-projects')
+    return Response.json({ ...mediaProject, root: path.join(scratch, 'Wrong') })
   }
   try {
-    const task = db.insert(schema.sysTask).values({ type: 'video', provider: 'ruby', model: 'any', prompt: '', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+    const task = db.insert(schema.sysTask).values({ type: 'video', dramaId: mediaDrama.id, provider: 'ruby', model: 'any', prompt: '', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
     await assert.rejects(submitRubyMedia('video', { id: task.id, model: 'any' }), /path mapping is pending/)
     assert.equal(called, 1)
   } finally { globalThis.fetch = original }
 })
 
 test('Extend binds the existing clip and preserves the card new-part duration; rejects unsupported continuation', () => {
-  const file = `E:/Media/Huobao/Temp/tests/extend/extend-test-${process.pid}.mp4`
+  const file = path.join(process.env.HUOBAO_TEMP_DIR!, 'extend-test.mp4')
   fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'mock media, no GPU')
   const card = { id: 'any-h3-card', slots: [{ name: 'seconds', type: 'float', default: 9.9166666667 }], bindings: { duration_s: { slot: 'seconds', unit: 'seconds' }, extend_from: { slot: 'source' } }, shotCapability: { continuations: [{ id: 'motion', possible: true }, { id: 'picture', possible: false }] } }
   try {
-    const shot = buildRubyShot(card, { prompt: 'Continue camera movement', extendFrom: file, extendKind: 'motion', duration: 5.2 }, 'video', {})
+    const shot = buildRubyShot(card, { dramaId: mediaDrama.id, prompt: 'Continue camera movement', extendFrom: file, extendKind: 'motion', duration: 5.2 }, 'video', {})
     assert.equal(shot.mode, 'extend'); assert.equal(shot.extend_from, fs.realpathSync(file)); assert.equal(shot.extend_kind, 'motion')
     assert.equal(shot.duration_s, 5.2) // Ruby alone adds/trims the context and snaps the frame grid.
-    assert.equal(buildRubyShot(card, { extendFrom: file, extendKind: 'motion' }, 'video', {}).duration_s, 9.9166666667)
+    assert.equal(buildRubyShot(card, { dramaId: mediaDrama.id, extendFrom: file, extendKind: 'motion' }, 'video', {}).duration_s, 9.9166666667)
     assert.throws(() => buildRubyShot(card, { extendFrom: file, extendKind: 'picture' }, 'video', {}), /cannot continue picture/)
-    assert.throws(() => buildRubyShot(card, { extendFrom: 'C:/Windows/win.ini', extendKind: 'motion' }, 'video', {}), /outside the approved/)
+    assert.throws(() => buildRubyShot(card, { dramaId: mediaDrama.id, extendFrom: 'C:/Windows/win.ini', extendKind: 'motion' }, 'video', {}), /outside the approved/)
   } finally { fs.unlinkSync(file) }
 })
 
@@ -156,7 +163,7 @@ test('explicit additional-track opt-out persists per shot and survives native ge
   const submitted: any[] = [], previews: any[] = []
   globalThis.fetch = async (url, options) => {
     const route = new URL(String(url)).pathname, body = options?.body ? JSON.parse(String(options.body)) : null
-    if (route === '/api/projects') return Response.json({ projects: [{ slug: 'huobao', root: process.env.STORAGE_PATH }] })
+    if (route === '/api/paths/native-projects') return Response.json({ slug: `huobao-drama-${drama.id}`, root: path.join(process.env.STORAGE_PATH!, `huobao-drama-${drama.id}`) })
     if (route === '/api/presets') return Response.json({ presets: [card] })
     if (route === '/api/shots/capabilities') return Response.json({ capabilities: {} })
     if (route.endsWith('/schema')) return Response.json({ model: { id: 'minimax_h3', known: true, reason: "detected from the graph's nodes as MiniMax H3" } })
@@ -173,9 +180,9 @@ test('explicit additional-track opt-out persists per shot and survives native ge
     assert.equal((await save(false)).status, 200)
     const persisted = (await (await settings.request(`/ruby-media/shot-controls/${storyboard.id}`)).json()).data
     assert.equal(persisted.audio_enabled, false)
-    const preview = await settings.request('/ruby-media/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: card.id, ...persisted, prompt: 'Native soundtrack remains owner-governed' }) })
+    const preview = await settings.request('/ruby-media/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: card.id, storyboardId: storyboard.id, ...persisted, prompt: 'Native soundtrack remains owner-governed' }) })
     assert.equal(preview.status, 200); assert.equal(previews.at(-1).audio_enabled, false)
-    const task = db.insert(schema.sysTask).values({ type: 'video', provider: 'ruby', model: card.id, storyboardId: storyboard.id, prompt: '', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
+    const task = db.insert(schema.sysTask).values({ type: 'video', dramaId: drama.id, provider: 'ruby', model: card.id, storyboardId: storyboard.id, prompt: '', status: 'processing', createdAt: '2026-10-04', updatedAt: '2026-10-04' }).returning().get()
     await submitRubyMedia('video', { id: task.id, model: card.id, generateAudio: true })
     assert.equal(previews.at(-1).audio_enabled, false)
     assert.deepEqual(submitted[0].values, { native_h3_audio: 'keep', source_audio: 'keep' })

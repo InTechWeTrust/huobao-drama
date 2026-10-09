@@ -1,8 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { STORAGE_ROOT, TEMP_ROOT } from './paths.js'
 
 export const SHARED_MEDIA_ROOTS = [
-  'E:/Media/Huobao/Project', 'E:/Media/Huobao/KeyAsset', 'E:/Media/Huobao/Temp',
+  STORAGE_ROOT, 'E:/Media/Huobao/KeyAsset', TEMP_ROOT,
   'E:/Media/VLO/Project', 'E:/Media/VLO/KeyAsset', 'E:/Media/VLO/Temp',
   'E:/Media/Rubyapp/Project', 'E:/Media/Rubyapp/KeyAsset', 'E:/Media/Rubyapp/Handoff', 'E:/Media/Rubyapp/Temp',
   'E:/Media/ComfyUI/Input', 'E:/Media/ComfyUI/Project', 'E:/Media/ComfyUI/Temp',
@@ -16,6 +18,7 @@ export function sharedMediaReference(raw: string, roots = SHARED_MEDIA_ROOTS): s
     if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.port !== '7010' || url.pathname !== '/api/media' || url.username || url.password) throw new Error('Use a local Ruby media reference')
     value = url.searchParams.get('path') || ''
   }
+  if (value.startsWith('file:')) value = fileURLToPath(value)
   if (!path.isAbsolute(value) || value.includes('\0') || value.slice(2).includes(':')) throw new Error('Reference must be a shared media file')
   const target = fs.realpathSync(value)
   const allowed = roots.some(root => {

@@ -806,7 +806,7 @@ function uploadMaterial(m) {
     if (!file) return
     uploadingMaterials.value = new Set(uploadingMaterials.value).add(key)
     try {
-      const res = await uploadAPI.image(file)
+      const res = await uploadAPI.image(file, { drama_id: dramaId, [`${m.kindKey}_id`]: m.id })
       // 与生图回写保持一致：存相对路径（static/...），展示时补前导斜杠
       const payload = { image_url: res.path, local_path: res.path }
       if (m.kindKey === 'character') await characterAPI.update(m.id, payload)

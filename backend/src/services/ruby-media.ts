@@ -4,7 +4,7 @@ import path from 'node:path'
 import { STORAGE_ROOT } from '../utils/paths.js'
 import { eq, and } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { getAbsolutePath } from '../utils/storage.js'
+import { getAbsolutePath, mediaProjectSlug } from '../utils/storage.js'
 import { sharedMediaReference } from '../utils/shared-media-reference.js'
 import { now } from '../utils/response.js'
 import { parseRubyJob, rubyLoopbackBase, RUBY_HEADERS, type MediaKind } from './ruby-media-policy.js'
@@ -70,6 +70,15 @@ function localReference(value: string): string {
   return sharedMediaReference(raw)
 }
 
+export function rubyProjectSlug(record: { dramaId?: number | null }) {
+  if (record.dramaId == null) throw new Error('Ruby media rendering needs a native Huobao drama id')
+  return mediaProjectSlug(record)
+}
+
+function rubyProjectRoot(record: { dramaId?: number | null }) {
+  return path.join(STORAGE_ROOT, rubyProjectSlug(record))
+}
+
 export function buildRubyShot(card: any, record: any, kind: MediaKind, configured: Record<string, unknown>) {
   if (record.audio_enabled != null && typeof record.audio_enabled !== 'boolean') throw new Error('Additional audio tracks must be true, false or null to use the existing policy')
   if (!configured || typeof configured !== 'object' || Array.isArray(configured)) throw new Error('Native preset controls must be an object')
@@ -107,8 +116,9 @@ export function buildRubyShot(card: any, record: any, kind: MediaKind, configure
   const durationSlots = slotsOf(card.bindings?.duration_s)
   const durationSlot = (card.slots || []).find((slot: any) => durationSlots.includes(slot.name))
   const defaultDuration = card.bindings?.duration_s?.unit === 'frames' ? undefined : durationSlot?.default
+  const project = rubyProjectSlug(record)
   return {
-    preset: card.id, project: 'huobao', prompt: String(record.prompt || ''), mode, references,
+    preset: card.id, project, prompt: String(record.prompt || ''), mode, references,
     ...(firstFrame ? { first_frame: localReference(firstFrame) } : {}),
     ...(lastFrame ? { last_frame: localReference(lastFrame) } : {}),
     ...(extendFrom ? { extend_from: localReference(extendFrom), extend_kind: extendKind } : {}),
@@ -121,12 +131,17 @@ export function buildRubyShot(card: any, record: any, kind: MediaKind, configure
 export async function submitRubyMedia(kind: MediaKind, record: any) {
   const owned = db.select().from(schema.sysTask).where(and(eq(schema.sysTask.id, Number(record.id)), eq(schema.sysTask.provider, 'ruby'), eq(schema.sysTask.type, kind))).get()
   if (!owned || owned.status !== 'processing') throw new Error('Create a native Huobao media task before submitting to Ruby')
-  const projects = await rubyRequest('/api/projects')
-  const project = projects.projects?.find((item: any) => item.slug === 'huobao')
-  if (!project || path.resolve(project.root).toLowerCase() !== path.resolve(STORAGE_ROOT).toLowerCase()) throw new Error(`Huobao media path mapping is pending. Ruby project huobao must use ${STORAGE_ROOT} before rendering; apply the native workspace mapping during controlled maintenance.`)
+  const projectSlug = rubyProjectSlug(owned)
+  const expectedRoot = rubyProjectRoot(owned)
+  const drama = db.select().from(schema.dramas).where(eq(schema.dramas.id, owned.dramaId!)).get()
+  if (!drama || drama.deletedAt) throw new Error('The Huobao media drama no longer exists')
+  const project = await rubyRequest('/api/paths/native-projects', {
+    app: 'huobao', native_id: drama.id, title: drama.title,
+  })
+  if (!project || path.resolve(project.root).toLowerCase() !== path.resolve(expectedRoot).toLowerCase()) throw new Error(`Huobao media path mapping is pending. Ruby project ${projectSlug} must use ${expectedRoot} before rendering; apply the native workspace mapping during controlled maintenance.`)
   const saved = getRubyShotControls(owned.storyboardId)
   const controls = saved.model === record.model ? saved : {}
-  const currentRecord = { ...record, extendFrom: record.extendFrom || controls.extend_from, extendKind: record.extendKind || controls.extend_kind, resolution: controls.resolution || record.resolution, audio_enabled: controls.audio_enabled ?? record.audio_enabled }
+  const currentRecord = { ...record, dramaId: owned.dramaId, storyboardId: owned.storyboardId, extendFrom: record.extendFrom || controls.extend_from, extendKind: record.extendKind || controls.extend_kind, resolution: controls.resolution || record.resolution, audio_enabled: controls.audio_enabled ?? record.audio_enabled }
   const card = (await localRubyPresets(kind, true)).find((item: any) => item.id === currentRecord.model)
   if (!card) throw new Error('Select an Active local Qwen-Image 2.1 image or MiniMax H3 video preset')
   const shot = buildRubyShot(card, currentRecord, kind, { ...rubyPresetDefaults(card), ...(controls.advanced || {}) })
@@ -135,12 +150,12 @@ export async function submitRubyMedia(kind: MediaKind, record: any) {
   const blocked = (preview.notes || []).filter((note: any) => note.severity === 'blocked')
   if (blocked.length) throw new Error(`Ruby preset input is not ready: ${blocked.map((note: any) => note.message).join(' ')}`)
   if ((preview.notes || []).some((note: any) => note.field === 'resolution' && /needs an upscale pass|fixed dimensions/i.test(note.message))) throw new Error('Ruby cannot deliver this requested resolution through this preset. Inspect preview notes and choose native size or an explicit supported upscale workflow.')
-  const consultation = await rubyRequest('/api/library-use/sessions', { project: 'huobao', proposed_card: card.id })
+  const consultation = await rubyRequest('/api/library-use/sessions', { project: projectSlug, proposed_card: card.id })
   const citations = (consultation.pushed || []).map((source: any) => ({ item_id: source.item_id, request: source.request, sha256: source.sha256, use: 'Preset guidance supplied to the Huobao local generation workflow' }))
   const job = await rubyRequest('/api/jobs', {
-    project: 'huobao', preset: card.id, values: preview.values, speech: record.generateAudio === false ? 'silent' : 'spoken',
+    project: projectSlug, preset: card.id, values: preview.values, speech: record.generateAudio === false ? 'silent' : 'spoken',
     override_reason: 'Huobao owns its script and storyboard; this local adapter renders that prepared shot through the shared Ruby production queue.',
-    idempotency_key: `huobao:${kind}:${record.id}`, library_use_id: consultation.library_use_id, library_citations: citations,
+    idempotency_key: `huobao:${projectSlug}:${kind}:${record.id}`, library_use_id: consultation.library_use_id, library_citations: citations,
   })
   if (!job.ref) throw new Error('Ruby did not return a render reference')
   return { taskId: String(job.ref), notes: preview.notes, library: job.library, consultation: { library_use_id: consultation.library_use_id, findings: consultation.findings } }

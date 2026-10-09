@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
-import { rubyRequest } from '../../services/ruby-media.js'
+import { getDramaId } from '../context.js'
+import { rubyProjectSlug, rubyRequest } from '../../services/ruby-media.js'
 
 export const rubyLibraryTools = {
   consultRubyLibrary: createTool({
@@ -11,15 +12,17 @@ export const rubyLibraryTools = {
       requests: z.array(z.string()).max(8).optional(),
     }),
     execute: async ({ proposed_card, requests }, context) => {
+      const dramaId = getDramaId(context?.requestContext)
+      const project = rubyProjectSlug({ dramaId })
       let key = context?.requestContext?.get('rubyLibraryUseId' as never) as string | undefined
       let opened: any
       if (!key) {
-        opened = await rubyRequest('/api/library-use/sessions', { project: 'huobao', proposed_card })
+        opened = await rubyRequest('/api/library-use/sessions', { project, proposed_card })
         key = opened.library_use_id
         context?.requestContext?.set('rubyLibraryUseId' as never, key as never)
       }
       if (requests?.length) {
-        const sources = await rubyRequest(`/api/library-use/${encodeURIComponent(key!)}/read`, { project: 'huobao', requests })
+        const sources = await rubyRequest(`/api/library-use/${encodeURIComponent(key!)}/read`, { project, requests })
         return { ...opened, ...sources }
       }
       return opened || rubyRequest(`/api/library-use/${encodeURIComponent(key!)}`)

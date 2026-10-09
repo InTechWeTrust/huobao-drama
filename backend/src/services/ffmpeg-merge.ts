@@ -11,7 +11,7 @@ import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger
 import { extractVideoPoster } from '../utils/video-poster.js'
 import { ffmpeg, checkFfmpegSuite } from '../utils/ffmpeg.js'
 import { STORAGE_ROOT, TEMP_ROOT } from '../utils/paths.js'
-import { getAbsolutePath } from '../utils/storage.js'
+import { getAbsolutePath, taskMediaSubdir } from '../utils/storage.js'
 
 function toAbsPath(relativePath: string): string {
   return getAbsolutePath(relativePath)
@@ -73,7 +73,7 @@ export async function mergeEpisodeVideos(episodeId: number, dramaId: number, sto
   const mergeId = getInsertId(res)
 
   // 异步执行
-  doMerge(mergeId, episodeId, videos).catch(async err => {
+  doMerge(mergeId, episodeId, dramaId, videos).catch(async err => {
     logTaskError('MergeTask', 'episode-merge', { mergeId, episodeId, error: err.message })
     console.error(`[Merge] Failed:`, err)
     await db.update(schema.videoMerges)
@@ -84,7 +84,7 @@ export async function mergeEpisodeVideos(episodeId: number, dramaId: number, sto
   return mergeId
 }
 
-async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
+async function doMerge(mergeId: number, episodeId: number, dramaId: number, videos: string[]) {
   // 生成 concat 列表文件
   const listDir = TEMP_ROOT
   fs.mkdirSync(listDir, { recursive: true })
@@ -96,7 +96,8 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   fs.writeFileSync(listPath, listContent, 'utf-8')
 
   // 输出文件
-  const outputDir = path.join(STORAGE_ROOT, 'merged')
+  const outputSubdir = taskMediaSubdir({ dramaId, episodeId }, 'merged')
+  const outputDir = path.join(STORAGE_ROOT, outputSubdir)
   fs.mkdirSync(outputDir, { recursive: true })
   const outputFilename = `${uuid()}.mp4`
   const outputPath = path.join(outputDir, outputFilename)
@@ -125,7 +126,7 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   // 获取时长
   const duration = await getVideoDuration(outputPath)
 
-  const mergedRelative = `static/merged/${outputFilename}`
+  const mergedRelative = `static/${outputSubdir}/${outputFilename}`
 
   // 成片海报帧（导出页封面用）
   await extractVideoPoster(mergedRelative)
