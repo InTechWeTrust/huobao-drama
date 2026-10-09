@@ -8,6 +8,7 @@ import { v4 as uuid } from 'uuid'
 import { STORAGE_ROOT } from './paths.js'
 import { confinedPath } from './confined-path.js'
 import { sharedMediaReference } from './shared-media-reference.js'
+import { localizeMediaPath } from './moved-media.js'
 
 export type MediaScope = {
   dramaId?: number | null
@@ -117,7 +118,9 @@ function getExtFromUrl(url: string): string {
  * 获取本地文件的绝对路径
  */
 export function getAbsolutePath(relativePath: string): string {
-  return confinedPath(STORAGE_ROOT, relativePath)
+  const original = confinedPath(STORAGE_ROOT, relativePath)
+  const localized = localizeMediaPath(original)
+  return localized === original ? original : sharedMediaReference(localized)
 }
 
 /**

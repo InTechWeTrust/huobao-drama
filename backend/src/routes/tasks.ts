@@ -120,6 +120,9 @@ app.post('/', async (c) => {
 
   try {
     const mediaScope = resolveMediaScope(body)
+    if (type === 'video' && [mediaScope.sceneId, mediaScope.characterId, mediaScope.propId].some(id => id != null)) {
+      throw new Error('Video media needs a storyboard or drama owner; asset owners require image references')
+    }
     // 请求显式指定 config_id（工作台模型下拉跨厂商切换）时优先；
     // 未指定才回退到集锁定配置，避免锁定配置与所选模型错配（如锁定 Seedance 却传 MiniMax 模型名）
     let configId: number | undefined = body.config_id
@@ -163,6 +166,7 @@ app.post('/', async (c) => {
 
     const id = type === 'image'
       ? await generateImage({
+        episodeId: mediaScope.episodeId ?? undefined,
         storyboardId: mediaScope.storyboardId ?? undefined,
         dramaId: mediaScope.dramaId ?? undefined,
         sceneId: mediaScope.sceneId ?? undefined,
@@ -176,6 +180,7 @@ app.post('/', async (c) => {
         configId,
       })
       : await generateVideo({
+        episodeId: mediaScope.episodeId ?? undefined,
         storyboardId: mediaScope.storyboardId ?? undefined,
         dramaId: mediaScope.dramaId ?? undefined,
         prompt: videoPrompt,

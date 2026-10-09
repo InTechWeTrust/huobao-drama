@@ -6,6 +6,7 @@ import { eq, and } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { getAbsolutePath, mediaProjectSlug } from '../utils/storage.js'
 import { sharedMediaReference } from '../utils/shared-media-reference.js'
+import { resolveTaskMediaScope } from '../utils/media-owner.js'
 import { now } from '../utils/response.js'
 import { parseRubyJob, rubyLoopbackBase, RUBY_HEADERS, type MediaKind } from './ruby-media-policy.js'
 
@@ -131,6 +132,10 @@ export function buildRubyShot(card: any, record: any, kind: MediaKind, configure
 export async function submitRubyMedia(kind: MediaKind, record: any) {
   const owned = db.select().from(schema.sysTask).where(and(eq(schema.sysTask.id, Number(record.id)), eq(schema.sysTask.provider, 'ruby'), eq(schema.sysTask.type, kind))).get()
   if (!owned || owned.status !== 'processing') throw new Error('Create a native Huobao media task before submitting to Ruby')
+  const scope = resolveTaskMediaScope(owned)
+  const nativeMedia = Object.fromEntries(Object.entries({ app: 'huobao', drama_id: scope.dramaId,
+    episode_id: scope.episodeId, storyboard_id: scope.storyboardId, scene_id: scope.sceneId,
+    character_id: scope.characterId, prop_id: scope.propId }).filter(([, value]) => value != null))
   const projectSlug = rubyProjectSlug(owned)
   const expectedRoot = rubyProjectRoot(owned)
   const drama = db.select().from(schema.dramas).where(eq(schema.dramas.id, owned.dramaId!)).get()
@@ -154,6 +159,7 @@ export async function submitRubyMedia(kind: MediaKind, record: any) {
   const citations = (consultation.pushed || []).map((source: any) => ({ item_id: source.item_id, request: source.request, sha256: source.sha256, use: 'Preset guidance supplied to the Huobao local generation workflow' }))
   const job = await rubyRequest('/api/jobs', {
     project: projectSlug, preset: card.id, values: preview.values, speech: record.generateAudio === false ? 'silent' : 'spoken',
+    native_media: nativeMedia,
     override_reason: 'Huobao owns its script and storyboard; this local adapter renders that prepared shot through the shared Ruby production queue.',
     idempotency_key: `huobao:${projectSlug}:${kind}:${record.id}`, library_use_id: consultation.library_use_id, library_citations: citations,
   })

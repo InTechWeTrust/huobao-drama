@@ -16,6 +16,7 @@ $env:HUOBAO_DATA_DIR=$State
 $env:SQLITE_PATH=Join-Path $State 'huobao.sqlite3'
 $env:STORAGE_PATH=$Project
 $env:HUOBAO_TEMP_DIR=$TempMedia
+$env:HUOBAO_SHARED_MEDIA_ROOTS=ConvertTo-Json -InputObject @($Mapping.shared_media_roots) -Compress
 $env:HUOBAO_AGENT_SCRATCH=Join-Path $TempMedia 'brain'
 $env:HUOBAO_LOCAL_MACHINE='1'
 $env:RUBYAPP_URL='http://127.0.0.1:7010'

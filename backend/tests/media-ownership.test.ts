@@ -20,11 +20,21 @@ const prop = db.insert(schema.props).values({ dramaId: first.id, name: 'Key', cr
 
 test('two native assets in the same drama refuse before provider admission', () => {
   assert.throws(() => resolveMediaScope({ character_id: character.id, prop_id: prop.id }), /one asset owner/)
+  assert.throws(() => resolveMediaScope({ storyboard_id: shot.id, character_id: character.id }), /one.*owner/)
   assert.deepEqual(resolveMediaScope({ prop_id: prop.id }), { dramaId: first.id, propId: prop.id })
 })
 
 test('native storyboard resolves project and episode without a manual drama field', () => {
   assert.deepEqual(resolveMediaScope({ storyboard_id: shot.id }), { dramaId: first.id, episodeId: episode.id, storyboardId: shot.id })
+})
+
+test('completion scope resolves an existing shot episode and retains episode-only task params', async () => {
+  const { resolveTaskMediaScope } = await import('../src/utils/media-owner.js')
+  assert.deepEqual(resolveTaskMediaScope({ dramaId: first.id, storyboardId: shot.id, params: '{}' }),
+    { dramaId: first.id, episodeId: episode.id, storyboardId: shot.id })
+  assert.deepEqual(resolveTaskMediaScope({ dramaId: first.id, params: JSON.stringify({ episodeId: episode.id }) }),
+    { dramaId: first.id, episodeId: episode.id })
+  assert.throws(() => resolveTaskMediaScope({ dramaId: other.id, params: JSON.stringify({ episodeId: episode.id }) }), /different drama/)
 })
 test('native asset upload derives its registered project', () => {
   assert.deepEqual(resolveMediaScope({ character_id: String(character.id) }), { dramaId: first.id, characterId: character.id })
@@ -100,5 +110,33 @@ test('unbound Ruby requests refuse before creating a processing task', async () 
     assert.equal(db.select().from(schema.sysTask).all().length, before)
   }
   assert.equal(providerCalls, 0)
+  } finally { globalThis.fetch = original }
+})
+
+test('episode-only generation keeps the validated episode in the existing task params', async () => {
+  const { default: tasks } = await import('../src/routes/tasks.js')
+  const { resolveTaskMediaScope } = await import('../src/utils/media-owner.js')
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({ error: { message: 'Fixture does not render' } }, { status: 400 })
+  try {
+    for (const type of ['image', 'video'] as const) {
+      const config = db.insert(schema.aiServiceConfigs).values({ serviceType: type,
+        provider: 'ruby', name: 'Fixture only',
+        model: JSON.stringify(['owned-fixture']), baseUrl: 'http://127.0.0.1:7010', apiKey: '',
+        isActive: true, createdAt: at, updatedAt: at }).returning().get()
+      const response = await tasks.request('/', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, prompt: 'Fixture', episode_id: episode.id, config_id: config.id }) })
+      assert.equal(response.status, 201)
+      const record = (await response.json() as any).data
+      assert.equal(JSON.parse(record.params).episodeId, episode.id)
+      assert.deepEqual(resolveTaskMediaScope(record), { dramaId: first.id, episodeId: episode.id })
+      // Consume the isolated provider failure before restoring fetch; no real request is sent.
+      for (let i = 0; i < 20; i++) {
+        await new Promise(resolve => setImmediate(resolve))
+        const saved = db.select().from(schema.sysTask).all().find(item => item.id === record.id)
+        if (saved?.status === 'failed') break
+      }
+      assert.equal(db.select().from(schema.sysTask).all().find(item => item.id === record.id)?.status, 'failed')
+    }
   } finally { globalThis.fetch = original }
 })

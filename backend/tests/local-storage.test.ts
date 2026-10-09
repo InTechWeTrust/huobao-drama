@@ -4,6 +4,14 @@ import path from 'node:path'
 import { confinedPath } from '../src/utils/confined-path.js'
 import { taskMediaSubdir, unassignedMediaSubdir } from '../src/utils/storage.js'
 
+test('shared media admission consumes the applied launcher roots and refuses relative configuration', async () => {
+  const { configuredSharedRoots } = await import('../src/utils/shared-media-reference.js')
+  const expected = [path.resolve('E:/rubyapp/scratch/codex-130/configured/Project')]
+  assert.deepEqual(configuredSharedRoots(JSON.stringify(expected)), expected)
+  assert.throws(() => configuredSharedRoots('["../outside"]'), /absolute/)
+  assert.throws(() => configuredSharedRoots('{}'), /array/)
+})
+
 test('virtual static paths resolve under media root independent of state root', () => {
   const root = path.resolve('E:/Media/Rubyapp/Project/huobao/static')
   assert.equal(confinedPath(root, 'static/images/frame.png'), path.join(root, 'images/frame.png'))

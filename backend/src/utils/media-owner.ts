@@ -10,6 +10,18 @@ function nativeId(value: unknown, label: string): number | null {
   return id
 }
 
+/** Persisted native task IDs and params use the same ownership checks as admission. */
+export function resolveTaskMediaScope(record: {
+  dramaId?: number | null; storyboardId?: number | null; sceneId?: number | null
+  characterId?: number | null; propId?: number | null; params?: string | null
+}): MediaScope {
+  const params = JSON.parse(record.params || '{}')
+  if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error('Invalid native task media params')
+  return resolveMediaScope({ drama_id: record.dramaId, episode_id: params.episodeId,
+    storyboard_id: record.storyboardId, scene_id: record.sceneId,
+    character_id: record.characterId, prop_id: record.propId })
+}
+
 /** Resolve ownership from native records before any upload or provider write. */
 export function resolveMediaScope(body: Record<string, unknown>): MediaScope {
   let dramaId = nativeId(body.drama_id, 'drama_id')
@@ -20,8 +32,8 @@ export function resolveMediaScope(body: Record<string, unknown>): MediaScope {
     dramaId = owner
   }
   const storyboardId = nativeId(body.storyboard_id, 'storyboard_id')
-  if (storyboardId == null && ['character_id', 'scene_id', 'prop_id'].filter(key => body[key] != null).length > 1) {
-    throw new Error('Media needs one asset owner when no storyboard is specified')
+  if (Number(storyboardId != null) + ['character_id', 'scene_id', 'prop_id'].filter(key => body[key] != null).length > 1) {
+    throw new Error('Media needs one shot or one asset owner')
   }
   if (storyboardId != null) {
     const row = db.select().from(schema.storyboards).where(eq(schema.storyboards.id, storyboardId)).get()

@@ -91,6 +91,7 @@ test('native media task submits only local approved preset with same Library rec
     assert.equal(submitted.taskId, '17')
     const post = requests.find(row => row.route === '/api/jobs')!
     assert.equal(post.body.project, mediaProject.slug)
+    assert.deepEqual(post.body.native_media, { app: 'huobao', drama_id: mediaDrama.id })
     assert.equal(post.body.preset, card.id)
     assert.equal(post.body.values.prompt, 'A forest')
     assert.equal(post.body.values.length, 124)
