@@ -1,15 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $Repo = Split-Path $PSScriptRoot -Parent
 $State = 'E:\Media\Huobao\.state'
-$RubyServer = 'D:\Other-projects\rubyapp-videogenerator\server'
-Push-Location $RubyServer
-try {
-  $MappingJson = & "$RubyServer\.venv\Scripts\python.exe" -m app.paths_apply --huobao-launch-paths
-  if ($LASTEXITCODE -ne 0) { throw 'Applied Huobao media mapping is unavailable; service was not started.' }
-  $Mapping = $MappingJson | ConvertFrom-Json
-} finally { Pop-Location }
-$TempMedia = $Mapping.huobao_temp
-$Project = $Mapping.huobao_projects
+# Media paths are fixed on E: (no Ruby lookup). Ruby folders stay readable so older dramas keep their references.
+$TempMedia = 'E:\Media\Huobao\Temp'
+$Project = 'E:\Media\Huobao\Project'
+$Mapping = @{ shared_media_roots = @($Project, $TempMedia,
+  'E:\Media\VLO\Project', 'E:\Media\VLO\Temp',
+  'E:\Media\ComfyUI\Input', 'E:\Media\ComfyUI\Project', 'E:\Media\ComfyUI\Temp\Windows',
+  'E:\Media\Rubyapp\Project', 'E:\Media\Rubyapp\KeyAsset', 'E:\Media\Rubyapp\Handoff', 'E:\Media\Rubyapp\Temp') }
 $Scratch = Join-Path $TempMedia 'runtime'
 foreach ($folder in @($State,$Scratch,$TempMedia,$Project)) { New-Item -ItemType Directory -Force -Path $folder | Out-Null }
 $env:HUOBAO_DATA_DIR=$State

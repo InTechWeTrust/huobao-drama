@@ -144,7 +144,7 @@
     },
     "deleteDialog": {
       "title": "Delete project",
-      "message": "Delete “{title}”? Episodes, storyboards and generation records will be removed. This cannot be undone."
+      "message": "Delete “{title}”? Episodes, storyboards and generation records are removed, and the project’s own image and video files go to the Recycle Bin (files other projects still use are kept)."
     },
     "time": {
       "justNow": "Just now",

@@ -9,10 +9,12 @@ import { VolcEngineVideoAdapter } from './volcengine-video'
 import { MiniMaxVideoAdapter } from './minimax-video'
 import { AliyunWanVideoAdapter } from './aliyun-wan-video'
 import { RubyImageAdapter, RubyVideoAdapter } from './ruby-media.js'
+import { ComfyBridgeImageAdapter, ComfyBridgeVideoAdapter } from './comfy-bridge.js'
 import type { ImageProviderAdapter, VideoProviderAdapter } from './types'
 
 // 图片 Adapter 注册表
 export const imageAdapters: Record<string, ImageProviderAdapter> = {
+  comfybridge: new ComfyBridgeImageAdapter(),
   ruby: new RubyImageAdapter(),
   openai: new OpenAIImageAdapter(),
   gemini: new GeminiImageAdapter(),
@@ -21,6 +23,7 @@ export const imageAdapters: Record<string, ImageProviderAdapter> = {
 
 // 视频 Adapter 注册表
 export const videoAdapters: Record<string, VideoProviderAdapter> = {
+  comfybridge: new ComfyBridgeVideoAdapter(),
   ruby: new RubyVideoAdapter(),
   volcengine: new VolcEngineVideoAdapter(),
   minimax: new MiniMaxVideoAdapter(),

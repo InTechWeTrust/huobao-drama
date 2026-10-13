@@ -34,7 +34,14 @@ export function parseConfigEffort(raw?: string | null): string {
 }
 
 export function localServiceAllowed(row: any): boolean {
-  if (row.serviceType !== 'text') return row.provider === 'ruby'
+  if (row.serviceType !== 'text') {
+    if (row.provider === 'ruby') return true
+    if (row.provider !== 'comfybridge') return false
+    try {  // ComfyBridge: local ComfyUI without Ruby
+      const url = new URL(row.baseUrl)
+      return url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+    } catch { return false }
+  }
   try {
     const url = new URL(row.baseUrl)
     return row.provider === 'openai' && url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && url.pathname.replace(/\/+$/, '').endsWith('/api/v1/machine')
@@ -54,8 +61,8 @@ export function parseConfigTemperature(settingsRaw: string | null | undefined): 
 
 export const officialProviders: Record<ServiceType, readonly string[]> = {
   text: ['openai'],
-  image: ['ruby'],
-  video: ['ruby'],
+  image: ['comfybridge', 'ruby'],
+  video: ['comfybridge', 'ruby'],
 }
 
 export function isOfficialProvider(serviceType?: string | null, provider?: string | null): boolean {

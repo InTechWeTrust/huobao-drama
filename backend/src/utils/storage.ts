@@ -72,6 +72,12 @@ export async function downloadFile(url: string, subDir: string): Promise<string>
       throw new Error('Ruby completed artifact is missing from the shared project')
     }
   }
+  // ComfyBridge already wrote the result into this project (E:\Media\Huobao\Project\comfy\...): adopt it.
+  if (source.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(source.hostname) && source.pathname.startsWith('/files/Huobao/')) {
+    const relative = decodeURIComponent(source.pathname.slice('/files/Huobao/'.length))
+    const target = confinedPath(STORAGE_ROOT, relative)
+    if (fs.existsSync(target) && fs.statSync(target).isFile()) return `static/${relative}`
+  }
   const dir = confinedPath(STORAGE_ROOT, subDir)
   fs.mkdirSync(dir, { recursive: true })
 

@@ -116,7 +116,18 @@ export async function chat(request: Request) {
     if(!response.ok) throw new Error(`Local model refused the request (${response.status})`)
     return validateLocalCompletion(await response.json(),request)
   }
-  const provider=request.model==='gpt-6.1-sol'?'codex':request.model==='claude-opus-5-5'?'claude':null
+  if (request.model==='gpt-6.1-sol' || request.model.startsWith('gpt-6.1-sol:')) {
+    // Sol goes through ComfyBridge (Codex backend, same subscription), so parallel turns need no busy lock.
+    const bridge=(process.env.HUOBAO_BRAIN_BRIDGE ?? 'http://127.0.0.1:8288/huobao/v1').replace(/\/$/,'')
+    const response=await fetch(`${bridge}/chat/completions`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...request,reasoning_effort:request.reasoning_effort==='ultra'?'max':request.reasoning_effort??'xhigh',stream:false}),
+      signal:AbortSignal.timeout(1800000),
+    })
+    if(!response.ok) throw new Error(`ComfyBridge refused the Sol request (${response.status})`)
+    return validateLocalCompletion(await response.json(),request)
+  }
+  const provider=request.model==='claude-opus-5-5'?'claude':null
   if(!provider) throw new Error('Only configured local models, Opus 5.5 and Sol 6.1 are enabled')
   if(provider==='claude' && request.reasoning_effort==='ultra') throw new Error('Claude Code does not support ultra effort')
   if(active.has(provider)) throw new Error('This subscription seat is busy; retry after the current request')

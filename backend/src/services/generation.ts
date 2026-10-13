@@ -218,7 +218,7 @@ async function processTask(id: number, config: AIConfig) {
 
     if (type === 'image') {
       const adapter = getImageAdapter(config.provider)
-      const resolvedReferenceImages = config.provider === 'ruby' ? (params.referenceImages || []) : await normalizeReferenceImages(params.referenceImages)
+      const resolvedReferenceImages = ['ruby', 'comfybridge'].includes(config.provider) ? (params.referenceImages || []) : await normalizeReferenceImages(params.referenceImages)
       ;({ url, method, headers, body } = adapter.buildGenerateRequest(config, {
         id: record.id,
         model: record.model,
@@ -229,7 +229,7 @@ async function processTask(id: number, config: AIConfig) {
       }))
     } else {
       const adapter = getVideoAdapter(config.provider)
-      const local = config.provider === 'ruby'
+      const local = ['ruby', 'comfybridge'].includes(config.provider)  // local engines read project files in place
       const resolvedImageUrl = local ? params.imageUrl : await normalizeVideoReferenceUrl(params.imageUrl)
       const resolvedFirstFrameUrl = local ? params.firstFrameUrl : await normalizeVideoReferenceUrl(params.firstFrameUrl)
       const resolvedLastFrameUrl = local ? params.lastFrameUrl : await normalizeVideoReferenceUrl(params.lastFrameUrl)

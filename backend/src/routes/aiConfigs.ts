@@ -125,7 +125,8 @@ app.get('/', async (c) => {
   let rows = await db.select().from(schema.aiServiceConfigs)
   if (serviceType) rows = rows.filter(r => r.serviceType === serviceType)
 
-  const cards = rows.some(row => row.provider === 'ruby') ? await localRubyPresets() : []
+  // Ruby is optional now (ComfyBridge renders without it): list configs even when Ruby is not running.
+  const cards = rows.some(row => row.provider === 'ruby') ? await localRubyPresets().catch(() => []) : []
   const parsed = rows.map(row => {
     const config = withParsedFields(row)
     if (row.provider !== 'ruby') return config

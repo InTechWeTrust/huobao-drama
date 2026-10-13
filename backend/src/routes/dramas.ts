@@ -3,6 +3,7 @@ import { and, eq, isNull, like, desc } from 'drizzle-orm'
 import { db, getInsertId, schema } from '../db/index.js'
 import { success, badRequest, notFound, created, now } from '../utils/response.js'
 import { toSnakeCase, toSnakeCaseArray } from '../utils/transform.js'
+import { purgeDrama } from '../services/drama-purge.js'
 
 const app = new Hono()
 
@@ -130,8 +131,8 @@ app.put('/:id', async (c) => {
 // DELETE /dramas/:id - Soft delete
 app.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))
-  await db.update(schema.dramas).set({ deletedAt: now() }).where(eq(schema.dramas.id, id))
-  return success(c)
+  // Real delete: the drama's own media goes to the Recycle Bin and its rows are removed (no leftover files).
+  try { return success(c, await purgeDrama(id)) } catch (err) { return badRequest(c, (err as Error).message) }
 })
 
 // PUT /dramas/:id/characters - Save characters
